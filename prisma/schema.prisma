@@ -1,0 +1,245 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────
+// UNIVERSITY
+// ─────────────────────────────────────────
+model University {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  shortName   String?
+  country     String   @default("Nigeria")
+  domain      String?  // e.g. unn.edu.ng
+  logoUrl     String?
+  isVerified  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  users       User[]
+  studyMaterials StudyMaterial[]
+  marketplaceItems MarketplaceItem[]
+  chatRooms   ChatRoom[]
+  admins      Admin[]
+}
+
+// ─────────────────────────────────────────
+// USER
+// ─────────────────────────────────────────
+model User {
+  id               String   @id @default(uuid())
+  firebaseUid      String   @unique  // links to Firebase Auth
+  displayName      String
+  email            String   @unique
+  photoURL         String?
+  emailVerified    Boolean  @default(false)
+  universityId     String?
+  faculty          String?
+  department       String?
+  bio              String?
+  isVerifiedStudent Boolean @default(false)  // university badge
+  verificationStatus VerificationStatus @default(PENDING)
+  role             Role     @default(STUDENT)
+  isPremium        Boolean  @default(false)
+  streakCount      Int      @default(0)
+  lastActiveAt     DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  university       University? @relation(fields: [universityId], references: [id])
+  studyMaterials   StudyMaterial[]
+  marketplaceItems MarketplaceItem[]
+  messagesSent     Message[]       @relation("SentMessages")
+  notifications    Notification[]
+  activityLogs     ActivityLog[]
+  reports          Report[]        @relation("ReportedBy")
+  reportedItems    Report[]        @relation("ReportedUser")
+  leaderboard      LeaderboardEntry?
+  isBanned Boolean @default(false)
+}
+
+enum Role {
+  STUDENT
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  MANUAL_REVIEW
+}
+
+// ─────────────────────────────────────────
+// ADMIN
+// ─────────────────────────────────────────
+model Admin {
+  id           String     @id @default(uuid())
+  firebaseUid  String     @unique
+  email        String     @unique
+  displayName  String
+  universityId String
+  createdAt    DateTime   @default(now())
+
+  university   University @relation(fields: [universityId], references: [id])
+}
+
+// ─────────────────────────────────────────
+// STUDY MATERIAL
+// ─────────────────────────────────────────
+model StudyMaterial {
+  id           String   @id @default(uuid())
+  title        String
+  description  String?
+  fileUrl      String
+  fileType     String   // pdf, docx, pptx, etc
+  fileSize     Int?     // in bytes
+  userId       String
+  universityId String
+  faculty      String?
+  department   String?
+  isPublic     Boolean  @default(true)
+  downloadCount Int     @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user         User       @relation(fields: [userId], references: [id])
+  university   University @relation(fields: [universityId], references: [id])
+}
+
+// ─────────────────────────────────────────
+// MARKETPLACE
+// ─────────────────────────────────────────
+model MarketplaceItem {
+  id           String          @id @default(uuid())
+  title        String
+  description  String
+  price        Float
+  imageUrl     String?
+  category     String?
+  condition    ItemCondition   @default(GOOD)
+  status       ListingStatus   @default(ACTIVE)
+  userId       String
+  universityId String
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  user         User       @relation(fields: [userId], references: [id])
+  university   University @relation(fields: [universityId], references: [id])
+}
+
+enum ItemCondition {
+  NEW
+  GOOD
+  FAIR
+  POOR
+}
+
+enum ListingStatus {
+  ACTIVE
+  SOLD
+  REMOVED
+}
+
+// ─────────────────────────────────────────
+// CHAT
+// ─────────────────────────────────────────
+model ChatRoom {
+  id           String    @id @default(uuid())
+  name         String?
+  isGroup      Boolean   @default(false)
+  universityId String?
+  createdAt    DateTime  @default(now())
+
+  university   University? @relation(fields: [universityId], references: [id])
+  messages     Message[]
+}
+
+model Message {
+  id         String   @id @default(uuid())
+  text       String
+  senderId   String
+  roomId     String
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  sender     User     @relation("SentMessages", fields: [senderId], references: [id])
+  room       ChatRoom @relation(fields: [roomId], references: [id])
+}
+
+// ─────────────────────────────────────────
+// NOTIFICATIONS
+// ─────────────────────────────────────────
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String
+  body      String
+  isRead    Boolean  @default(false)
+  type      String?  // "chat", "marketplace", "system", etc
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+// ─────────────────────────────────────────
+// ACTIVITY LOG
+// ─────────────────────────────────────────
+model ActivityLog {
+  id          String   @id @default(uuid())
+  userId      String
+  type        String   // "upload", "ai", "marketplace", "chat"
+  description String
+  href        String?
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id])
+}
+
+// ─────────────────────────────────────────
+// LEADERBOARD
+// ─────────────────────────────────────────
+model LeaderboardEntry {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  score     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+// ─────────────────────────────────────────
+// REPORTS (moderation)
+// ─────────────────────────────────────────
+model Report {
+  id           String       @id @default(uuid())
+  reportedById String
+  reportedUserId String?
+  contentType  String       // "message", "material", "listing"
+  contentId    String
+  reason       String
+  status       ReportStatus @default(PENDING)
+  createdAt    DateTime     @default(now())
+
+  reportedBy   User         @relation("ReportedBy", fields: [reportedById], references: [id])
+  reportedUser User?        @relation("ReportedUser", fields: [reportedUserId], references: [id])
+}
+
+enum ReportStatus {
+  PENDING
+  REVIEWED
+  RESOLVED
+  DISMISSED
+}
+
