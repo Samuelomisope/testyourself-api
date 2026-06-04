@@ -90,4 +90,29 @@ async banUser(@Param('id') id: string, @CurrentUser() user: FirebaseUser) {
   requireAdmin(user);
   return this.adminService.toggleBanUser(id);
 }
+
+// ── Marketplace ───────────────────────────────────────────────────
+  @Get('sellers')
+  async getAllSellers(@CurrentUser() user: FirebaseUser) {
+    requireAdmin(user);
+    return this.adminService.getAllSellers();
+  }
+
+  @Delete('sellers/:id')
+  async deleteSeller(@Param('id') id: string, @CurrentUser() user: FirebaseUser) {
+    requireAdmin(user);
+    return this.adminService.deleteSeller(id);
+  }
+
+  @Get('reviews')
+  async getAllReviews(@CurrentUser() user: FirebaseUser) {
+    requireAdmin(user);
+    return this.adminService.getAllReviews();
+  }
+
+  @Delete('reviews/:id')
+  async deleteReview(@Param('id') id: string, @CurrentUser() user: FirebaseUser) {
+    requireAdmin(user);
+    return this.adminService.deleteReview(id);
+  }
 }

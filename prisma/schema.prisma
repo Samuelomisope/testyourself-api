@@ -66,6 +66,14 @@ model User {
   reportedItems    Report[]        @relation("ReportedUser")
   leaderboard      LeaderboardEntry?
   isBanned Boolean @default(false)
+  sellerProfile    SellerProfile?
+  buyerProfile     BuyerProfile?
+  reviews          Review[]
+  chatRooms        ChatRoomMember[]
+  statuses       Status[]
+  statusViews    StatusView[]
+  reactions      MessageReaction[]
+  chatSnapUsername String? @unique
 }
 
 enum Role {
@@ -126,17 +134,26 @@ model MarketplaceItem {
   title        String
   description  String
   price        Float
-  imageUrl     String?
+  images       String[]
   category     String?
+  type         ListingType     @default(PHYSICAL)
   condition    ItemCondition   @default(GOOD)
   status       ListingStatus   @default(ACTIVE)
+  tags         String[]
   userId       String
   universityId String
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
 
-  user         User       @relation(fields: [userId], references: [id])
-  university   University @relation(fields: [universityId], references: [id])
+  user         User            @relation(fields: [userId], references: [id])
+  university   University      @relation(fields: [universityId], references: [id])
+  reviews      Review[]
+}
+
+enum ListingType {
+  PHYSICAL
+  DIGITAL
+  SERVICE
 }
 
 enum ItemCondition {
@@ -153,6 +170,46 @@ enum ListingStatus {
 }
 
 // ─────────────────────────────────────────
+// SELLER / BUYER PROFILES
+// ─────────────────────────────────────────
+model SellerProfile {
+  id               String   @id @default(uuid())
+  userId           String   @unique
+  bio              String?
+  chatSnapUsername String?
+  whatsapp         String?
+  rating           Float    @default(0)
+  totalSales       Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user             User     @relation(fields: [userId], references: [id])
+}
+
+model BuyerProfile {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+// ─────────────────────────────────────────
+// REVIEWS
+// ─────────────────────────────────────────
+model Review {
+  id        String          @id @default(uuid())
+  rating    Int
+  comment   String?
+  userId    String
+  itemId    String
+  createdAt DateTime        @default(now())
+
+  user      User            @relation(fields: [userId], references: [id])
+  item      MarketplaceItem @relation(fields: [itemId], references: [id])
+}
+
+// ─────────────────────────────────────────
 // CHAT
 // ─────────────────────────────────────────
 model ChatRoom {
@@ -164,18 +221,26 @@ model ChatRoom {
 
   university   University? @relation(fields: [universityId], references: [id])
   messages     Message[]
+  members      ChatRoomMember[]
 }
 
 model Message {
-  id         String   @id @default(uuid())
-  text       String
-  senderId   String
-  roomId     String
-  isRead     Boolean  @default(false)
-  createdAt  DateTime @default(now())
+  id          String   @id @default(uuid())
+  text        String?
+  mediaUrl    String?
+  mediaType   String?  // image, video, audio, file
+  type        String   @default("text") // text, image, video, audio, file
+  senderId    String
+  roomId      String
+  replyToId   String?
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
 
-  sender     User     @relation("SentMessages", fields: [senderId], references: [id])
-  room       ChatRoom @relation(fields: [roomId], references: [id])
+  sender      User              @relation("SentMessages", fields: [senderId], references: [id])
+  room        ChatRoom          @relation(fields: [roomId], references: [id])
+  replyTo     Message?          @relation("MessageReplies", fields: [replyToId], references: [id])
+  replies     Message[]         @relation("MessageReplies")
+  reactions   MessageReaction[]
 }
 
 // ─────────────────────────────────────────
@@ -243,3 +308,59 @@ enum ReportStatus {
   DISMISSED
 }
 
+
+model ChatRoomMember {
+  id        String   @id @default(uuid())
+  userId    String
+  roomId    String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id])
+  room      ChatRoom @relation(fields: [roomId], references: [id])
+
+  @@unique([userId, roomId])
+}
+
+// ─────────────────────────────────────────
+// STATUS
+// ─────────────────────────────────────────
+model Status {
+  id        String   @id @default(uuid())
+  userId    String
+  text      String?
+  mediaUrl  String?
+  type      String   @default("text") // text, image
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id])
+  views     StatusView[]
+}
+
+model StatusView {
+  id        String   @id @default(uuid())
+  statusId  String
+  userId    String
+  createdAt DateTime @default(now())
+
+  status    Status   @relation(fields: [statusId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([statusId, userId])
+}
+
+// ─────────────────────────────────────────
+// MESSAGE REACTION
+// ─────────────────────────────────────────
+model MessageReaction {
+  id        String   @id @default(uuid())
+  messageId String
+  userId    String
+  emoji     String
+  createdAt DateTime @default(now())
+
+  message   Message  @relation(fields: [messageId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([messageId, userId])
+}

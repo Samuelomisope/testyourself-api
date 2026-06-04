@@ -11,6 +11,9 @@ import { StudyMaterialModule } from './study-material/study-material.module';
 import { SearchController } from './search/search.controller';
 import { PrismaService } from './prisma/prisma.service';
 import { AdminModule } from './admin/admin.module';
+import { MarketplaceModule } from './marketplace/marketplace.module';
+import { UploadModule } from './upload/upload.module';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
@@ -21,6 +24,9 @@ import { AdminModule } from './admin/admin.module';
     UniversitiesModule,
     StudyMaterialModule,
     AdminModule,
+    MarketplaceModule,
+    UploadModule,
+    ChatModule,
   ],
   controllers: [SearchController],
   providers: [PrismaService], // if not already global

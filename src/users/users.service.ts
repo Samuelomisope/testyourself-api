@@ -6,96 +6,104 @@ import type { FirebaseUser } from '../common/decorators/current-user.decorator';
 export class UsersService {
   constructor(private prisma: PrismaService) {}
 
-
   async getRecentActivity(uid: string) {
-  const user = await this.prisma.user.findUnique({
-    where: { firebaseUid: uid },
-  });
-  if (!user) return [];
+    const user = await this.prisma.user.findUnique({
+      where: { firebaseUid: uid },
+    });
+    if (!user) return [];
 
-  return this.prisma.activityLog.findMany({
-    where: { userId: user.id },
-    orderBy: { createdAt: 'desc' },
-    take: 5,
-  });
-}
+    return this.prisma.activityLog.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+    });
+  }
 
-async searchUsers(q: string) {
-  return this.prisma.user.findMany({
-    where: {
-      displayName: { contains: q, mode: 'insensitive' },
-    },
-    select: { id: true, displayName: true, email: true, photoURL: true },
-    take: 20,
-  });
-}
+  async searchUsers(q: string) {
+    return this.prisma.user.findMany({
+      where: {
+        OR: [
+          { displayName: { contains: q, mode: 'insensitive' } },
+          { chatSnapUsername: { contains: q, mode: 'insensitive' } },
+        ],
+        isBanned: false,
+      },
+      select: { id: true, displayName: true, email: true, photoURL: true, chatSnapUsername: true },
+      take: 20,
+    });
+  }
 
   async findOrCreate(firebaseUser: FirebaseUser) {
-  // First try finding by firebaseUid
-  let existing = await this.prisma.user.findUnique({
-    where: { firebaseUid: firebaseUser.uid },
-    include: { university: true },
-  });
-
-  // Fallback — find by email in case user exists but firebaseUid wasn't saved
-  if (!existing && firebaseUser.email) {
-    existing = await this.prisma.user.findUnique({
-      where: { email: firebaseUser.email },
+    let existing = await this.prisma.user.findUnique({
+      where: { firebaseUid: firebaseUser.uid },
       include: { university: true },
     });
 
-    // If found by email, update the firebaseUid
-    if (existing) {
-      existing = await this.prisma.user.update({
+    if (!existing && firebaseUser.email) {
+      existing = await this.prisma.user.findUnique({
         where: { email: firebaseUser.email },
-        data: { firebaseUid: firebaseUser.uid },
+        include: { university: true },
+      });
+
+      if (existing) {
+        existing = await this.prisma.user.update({
+          where: { email: firebaseUser.email },
+          data: { firebaseUid: firebaseUser.uid },
+          include: { university: true },
+        });
+      }
+    }
+
+    if (existing) {
+      const now = new Date();
+      const last = new Date(existing.lastActiveAt);
+      const todayStr = now.toDateString();
+      const lastStr = last.toDateString();
+
+      if (todayStr === lastStr) {
+        return this.prisma.user.update({
+          where: { firebaseUid: firebaseUser.uid },
+          data: {
+            lastActiveAt: now,
+            emailVerified: firebaseUser.emailVerified,
+            photoURL: firebaseUser.picture || existing.photoURL,
+            displayName: firebaseUser.name || existing.displayName,
+          },
+          include: { university: true },
+        });
+      }
+
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const newStreak = last.toDateString() === yesterday.toDateString()
+        ? existing.streakCount + 1
+        : 1;
+
+      return this.prisma.user.update({
+        where: { firebaseUid: firebaseUser.uid },
+        data: {
+          lastActiveAt: now,
+          emailVerified: firebaseUser.emailVerified,
+          photoURL: firebaseUser.picture || existing.photoURL,
+          displayName: firebaseUser.name || existing.displayName,
+          streakCount: newStreak,
+        },
         include: { university: true },
       });
     }
-  }
-if (existing) {
-  const now = new Date();
-  const last = new Date(existing.lastActiveAt);
-  const todayStr = now.toDateString();
-  const lastStr = last.toDateString();
 
-  if (todayStr === lastStr) {
-    return this.prisma.user.update({
-      where: { firebaseUid: firebaseUser.uid },
-      data: { lastActiveAt: now, emailVerified: firebaseUser.emailVerified },
+    return this.prisma.user.create({
+      data: {
+        firebaseUid: firebaseUser.uid,
+        email: firebaseUser.email,
+        displayName: firebaseUser.name || firebaseUser.email.split('@')[0],
+        photoURL: firebaseUser.picture || null,
+        emailVerified: firebaseUser.emailVerified,
+        streakCount: 1,
+      },
       include: { university: true },
     });
   }
-
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const newStreak = last.toDateString() === yesterday.toDateString()
-    ? existing.streakCount + 1
-    : 1;
-
-  return this.prisma.user.update({
-    where: { firebaseUid: firebaseUser.uid },
-    data: {
-      lastActiveAt: now,
-      emailVerified: firebaseUser.emailVerified,
-      streakCount: newStreak,
-    },
-    include: { university: true },
-  });
-}
-
-return this.prisma.user.create({
-  data: {
-    firebaseUid: firebaseUser.uid,
-    email: firebaseUser.email,
-    displayName: firebaseUser.name || firebaseUser.email.split('@')[0],
-    photoURL: firebaseUser.picture || null,
-    emailVerified: firebaseUser.emailVerified,
-    streakCount: 1,
-  },
-  include: { university: true },
-});
-}
 
   async findByFirebaseUid(uid: string) {
     return this.prisma.user.findUnique({
@@ -111,6 +119,7 @@ return this.prisma.user.create({
     faculty?: string;
     department?: string;
     universityId?: string;
+    chatSnapUsername?: string;
   }) {
     return this.prisma.user.update({
       where: { firebaseUid: uid },
