@@ -1,9 +1,9 @@
 {
   "build": {
-    "builder": "NIXPACKS",
-    "buildCommand": "npm install && npx prisma generate && npm run build"
+    "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "npm run start:prod"
+    "startCommand": "npm run start:prod",
+    "restartPolicyType": "ON_FAILURE"
   }
 }
