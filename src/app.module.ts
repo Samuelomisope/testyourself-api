@@ -32,14 +32,16 @@ import { ChatModule } from './chat/chat.module';
   providers: [PrismaService], // if not already global
 })
 export class AppModule implements OnModuleInit {
-  onModuleInit() {
-    const serviceAccountPath = path.resolve('firebase-service-account.json');
-    if (!admin.apps.length) {
-      const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
-      });
-      console.log('✅ Firebase Admin initialized');
-    }
+ onModuleInit() {
+  if (!admin.apps.length) {
+    const serviceAccount = (process.env.FIREBASE_SERVICE_ACCOUNT
+      ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)
+      : JSON.parse(fs.readFileSync(path.resolve('firebase-service-account.json'), 'utf8'))) as admin.ServiceAccount;
+
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+    });
+    console.log('✅ Firebase Admin initialized');
   }
+}
 }
