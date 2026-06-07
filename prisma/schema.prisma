@@ -73,6 +73,7 @@ model User {
   statusViews    StatusView[]
   reactions      MessageReaction[]
   chatSnapUsername String? @unique
+  chatWallpaper String? @default("default")
 }
 
 enum Role {
