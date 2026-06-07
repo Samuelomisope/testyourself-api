@@ -22,6 +22,11 @@ async function main() {
     );
   `);
 
+  // Fix chatWallpaper column type from JSON to TEXT
+  await client.query(`
+    ALTER TABLE "User" ALTER COLUMN "chatWallpaper" TYPE TEXT USING "chatWallpaper"::text;
+  `);
+
   // Recreate ChatRoomMember table
   await client.query(`
     CREATE TABLE IF NOT EXISTS "ChatRoomMember" (
