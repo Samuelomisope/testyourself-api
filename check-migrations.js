@@ -1,14 +1,17 @@
-process.env.DATABASE_URL = 'postgresql://testyourself_user:pgzsud5ixJRTHMIXdz8wuGDXtLA5MLl1@dpg-d8i90r6q1p3s73efrub0-a.virginia-postgres.render.com/testyourself';
+const { Client } = require('pg');
 
-const { PrismaClient } = require('@prisma/client');
-
-const prisma = new PrismaClient();
+const client = new Client({
+  connectionString: 'postgresql://testyourself_user:pgzsud5ixJRTHMIXdz8wuGDXtLA5MLl1@dpg-d8i90r6q1p3s73efrub0-a.virginia-postgres.render.com/testyourself?sslmode=require',
+  ssl: { rejectUnauthorized: false },
+});
 
 async function main() {
-  const result = await prisma.$queryRawUnsafe(
+  await client.connect();
+  const result = await client.query(
     `SELECT migration_name, finished_at, rolled_back_at FROM "_prisma_migrations" ORDER BY started_at`
   );
-  console.log(JSON.stringify(result, null, 2));
+  console.table(result.rows);
+  await client.end();
 }
 
-main().then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); });
+main().catch(e => { console.error(e); process.exit(1); });
