@@ -22,7 +22,18 @@ async function main() {
     );
   `);
 
-  // Add foreign key only if it doesn't already exist
+  // Recreate ChatRoomMember table if it doesn't exist
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "ChatRoomMember" (
+      "id" TEXT NOT NULL,
+      "userId" TEXT NOT NULL,
+      "roomId" TEXT NOT NULL,
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "ChatRoomMember_pkey" PRIMARY KEY ("id")
+    );
+  `);
+
+  // Add foreign keys if they don't exist
   await client.query(`
     DO $$ BEGIN
       IF NOT EXISTS (
@@ -35,6 +46,41 @@ async function main() {
     END $$;
   `);
 
+  await client.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'ChatRoomMember_userId_fkey'
+      ) THEN
+        ALTER TABLE "ChatRoomMember" ADD CONSTRAINT "ChatRoomMember_userId_fkey"
+        FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+      END IF;
+    END $$;
+  `);
+
+  await client.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'ChatRoomMember_roomId_fkey'
+      ) THEN
+        ALTER TABLE "ChatRoomMember" ADD CONSTRAINT "ChatRoomMember_roomId_fkey"
+        FOREIGN KEY ("roomId") REFERENCES "ChatRoom"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+      END IF;
+    END $$;
+  `);
+
+  await client.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_indexes 
+        WHERE indexname = 'ChatRoomMember_userId_roomId_key'
+      ) THEN
+        CREATE UNIQUE INDEX "ChatRoomMember_userId_roomId_key" ON "ChatRoomMember"("userId", "roomId");
+      END IF;
+    END $$;
+  `);
+
   // Mark the failed migration as rolled back
   await client.query(`
     UPDATE "_prisma_migrations" 
@@ -43,7 +89,7 @@ async function main() {
     AND "finished_at" IS NULL
   `);
 
-  console.log('Done! ChatRoom table recreated.');
+  console.log('Done! Tables recreated.');
   await client.end();
 }
 
