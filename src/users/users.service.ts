@@ -112,21 +112,22 @@ export class UsersService {
     });
   }
 
-  async updateProfile(uid: string, data: {
-    displayName?: string;
-    photoURL?: string;
-    bio?: string;
-    faculty?: string;
-    department?: string;
-    universityId?: string;
-    chatSnapUsername?: string;
-  }) {
-    return this.prisma.user.update({
-      where: { firebaseUid: uid },
-      data,
-      include: { university: true },
-    });
-  }
+ async updateProfile(uid: string, data: {
+  displayName?: string;
+  photoURL?: string;
+  bio?: string;
+  faculty?: string;
+  department?: string;
+  universityId?: string;
+  chatSnapUsername?: string;
+  chatWallpaper?: string;
+}) {
+  return this.prisma.user.update({
+    where: { firebaseUid: uid },
+    data,
+    include: { university: true },
+  });
+}
 
   async getUserStats(uid: string) {
     const user = await this.prisma.user.findUnique({
