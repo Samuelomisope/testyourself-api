@@ -1,21 +1,15 @@
 import { PrismaClient } from '@prisma/client';
-import * as dotenv from 'dotenv';
-dotenv.config();
 
-const prisma = new PrismaClient({
-  datasourceUrl: process.env.DATABASE_URL,
-});
+const prisma = new PrismaClient();
 
 async function main() {
   const result = await prisma.$executeRawUnsafe(`
     UPDATE "_prisma_migrations" 
-    SET "finished_at" = NOW(), 
-        "applied_steps_count" = 1,
-        "logs" = NULL,
-        "rolled_back_at" = NULL
+    SET "rolled_back_at" = NOW()
     WHERE "migration_name" = '20260607071730_merge_chat_modelsnpx'
+    AND "finished_at" IS NULL
   `);
-  console.log('Migration fixed! Rows updated:', result);
+  console.log('Done! Rows updated:', result);
 }
 
 main().then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); });
