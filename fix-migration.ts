@@ -22,9 +22,17 @@ async function main() {
     );
   `);
 
+  // Add foreign key only if it doesn't already exist
   await client.query(`
-    ALTER TABLE "ChatRoom" ADD CONSTRAINT IF NOT EXISTS "ChatRoom_universityId_fkey"
-    FOREIGN KEY ("universityId") REFERENCES "University"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'ChatRoom_universityId_fkey'
+      ) THEN
+        ALTER TABLE "ChatRoom" ADD CONSTRAINT "ChatRoom_universityId_fkey"
+        FOREIGN KEY ("universityId") REFERENCES "University"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+      END IF;
+    END $$;
   `);
 
   // Mark the failed migration as rolled back
