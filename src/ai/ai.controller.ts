@@ -11,25 +11,58 @@ export class AiController {
 
   @Post('quiz')
   async generateQuiz(
-    @Body() body: { text: string; count?: number; difficulty?: string },
+    @Body()
+    body: {
+      text: string;
+      count?: number;
+      difficulty?: string;
+      imageData?: string;
+      imageMediaType?: string;
+    },
     @CurrentUser() _user: FirebaseUser,
   ) {
-    return this.aiService.generateQuiz(body.text, body.count, body.difficulty);
+    return this.aiService.generateQuiz(
+      body.text,
+      body.count,
+      body.difficulty,
+      body.imageData,
+      body.imageMediaType,
+    );
   }
 
   @Post('ask')
   async askQuestion(
-    @Body() body: { question: string },
+    @Body()
+    body: {
+      question: string;
+      imageData?: string;
+      imageMediaType?: string;
+    },
     @CurrentUser() _user: FirebaseUser,
   ) {
-    return this.aiService.askQuestion(body.question);
+    return this.aiService.askQuestion(
+      body.question,
+      body.imageData,
+      body.imageMediaType,
+    );
   }
 
   @Post('summarize')
   async summarize(
-    @Body() body: { text: string; style?: string },
+    @Body()
+    body: {
+      text: string;
+      style?: string;
+      imageData?: string;
+      imageMediaType?: string;
+    },
     @CurrentUser() _user: FirebaseUser,
   ) {
-    return this.aiService.summarize(body.text, body.style);
+    return this.aiService.summarize(
+      body.text,
+      body.style,
+      body.imageData,
+      body.imageMediaType,
+    );
   }
 }
