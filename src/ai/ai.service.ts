@@ -1,24 +1,26 @@
 import { Injectable } from '@nestjs/common';
-import Anthropic from '@anthropic-ai/sdk';
+import Groq from 'groq-sdk';
 
 @Injectable()
 export class AiService {
-  private client: Anthropic;
+  private client: Groq;
 
   constructor() {
-    this.client = new Anthropic({
-      apiKey: process.env.ANTHROPIC_API_KEY,
+    this.client = new Groq({
+      apiKey: process.env.GROQ_API_KEY,
     });
   }
 
   private async ask(system: string, prompt: string): Promise<string> {
-    const message = await this.client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+    const response = await this.client.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
       max_tokens: 1000,
-      system,
-      messages: [{ role: 'user', content: prompt }],
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: prompt },
+      ],
     });
-    return message.content[0].type === 'text' ? message.content[0].text : '';
+    return response.choices[0].message.content ?? '';
   }
 
   async generateQuiz(text: string, count: number = 5, difficulty: string = 'Medium') {
