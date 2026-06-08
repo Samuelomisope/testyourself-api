@@ -15,7 +15,6 @@ export class StudyMaterialService {
         accessKeyId: process.env.WASABI_ACCESS_KEY!,
         secretAccessKey: process.env.WASABI_SECRET_KEY!,
       },
-      forcePathStyle: true,
     });
   }
 
@@ -30,7 +29,7 @@ export class StudyMaterialService {
       ACL: 'public-read',
     });
     await this.s3.send(command);
-    return `${process.env.WASABI_ENDPOINT}/${process.env.WASABI_BUCKET_NAME}/${key}`;
+    return `https://${process.env.WASABI_BUCKET_NAME}.s3.${process.env.WASABI_REGION}.wasabisys.com/${key}`;
   }
 
   // Delete file from Wasabi
