@@ -69,38 +69,40 @@ export class StudyMaterialController {
   }
 
   // Get all materials — all public + own private
-  @Get()
-  async findAll(
-    @CurrentUser() currentUser: FirebaseUser,
-    @Query('faculty') faculty?: string,
-    @Query('department') department?: string,
-    @Query('search') search?: string,
-  ) {
-    const user = await this.prisma.user.findUnique({ where: { firebaseUid: currentUser.uid } });
-    if (!user) return [];
+ @Get()
+async findAll(
+  @CurrentUser() currentUser: FirebaseUser,
+  @Query('faculty') faculty?: string,
+  @Query('department') department?: string,
+  @Query('search') search?: string,
+) {
+  const user = await this.prisma.user.findUnique({ where: { firebaseUid: currentUser.uid } });
+  if (!user) return [];
 
-    return this.prisma.studyMaterial.findMany({
-      where: {
-        ...(faculty && { faculty }),
-        ...(department && { department }),
-        ...(search && {
-          OR: [
-            { title: { contains: search, mode: 'insensitive' } },
-            { description: { contains: search, mode: 'insensitive' } },
-          ],
-        }),
+  const materials = await this.prisma.studyMaterial.findMany({
+    where: {
+      ...(faculty && { faculty }),
+      ...(department && { department }),
+      ...(search && {
         OR: [
-          { isPublic: true },
-          { userId: user.id },
+          { title: { contains: search, mode: 'insensitive' } },
+          { description: { contains: search, mode: 'insensitive' } },
         ],
-      },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        user: { select: { displayName: true, photoURL: true } },
-        university: { select: { id: true, name: true, shortName: true } },
-      },
-    });
-  }
+      }),
+      OR: [
+        { isPublic: true },
+        { userId: user.id },
+      ],
+    },
+    orderBy: { createdAt: 'desc' },
+    include: {
+      user: { select: { displayName: true, photoURL: true } },
+      university: { select: { id: true, name: true, shortName: true } },
+    },
+  });
+
+  return Promise.all(materials.map(m => this.studyMaterialService.withSignedUrl(m)));
+}
 
   // Get my uploaded materials
   @Get('my')
