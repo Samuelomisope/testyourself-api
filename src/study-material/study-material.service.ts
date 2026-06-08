@@ -22,13 +22,29 @@ export class StudyMaterialService {
 
   // Generate a signed URL from a stored fileUrl
   async getSignedFileUrl(fileUrl: string): Promise<string> {
-    const key = fileUrl.split(`${process.env.WASABI_BUCKET_NAME}/`)[1];
-    const command = new GetObjectCommand({
-      Bucket: process.env.WASABI_BUCKET_NAME,
-      Key: key,
-    });
-    return getSignedUrl(this.s3, command, { expiresIn: 3600 }); // 1 hour
+  console.log('fileUrl:', fileUrl);
+  
+  let key: string;
+  
+  // Handle both path-style and virtual-hosted URLs
+  if (fileUrl.includes(`/${process.env.WASABI_BUCKET_NAME}/`)) {
+    key = fileUrl.split(`/${process.env.WASABI_BUCKET_NAME}/`)[1];
+  } else if (fileUrl.includes('.wasabisys.com/')) {
+    key = fileUrl.split('.wasabisys.com/')[1];
+  } else {
+    key = fileUrl; // already a key
   }
+
+  console.log('extracted key:', key);
+
+  if (!key) throw new Error(`Could not extract key from fileUrl: ${fileUrl}`);
+
+  const command = new GetObjectCommand({
+    Bucket: process.env.WASABI_BUCKET_NAME,
+    Key: key,
+  });
+  return getSignedUrl(this.s3, command, { expiresIn: 3600 });
+}
 
   // Attach signed URL to a material object
   async withSignedUrl(material: any) {
