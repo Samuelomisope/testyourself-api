@@ -7,9 +7,7 @@ export class ChatService {
 
   // ── Helper ────────────────────────────────────────────────────────
   private async getDbUser(firebaseUid: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { firebaseUid },
-    });
+    const user = await this.prisma.user.findUnique({ where: { firebaseUid } });
     if (!user) throw new NotFoundException('User not found');
     return user;
   }
@@ -63,7 +61,7 @@ export class ChatService {
     });
   }
 
-  // ── Group Chat Room ───────────────────────────────────────────────
+  // ── University Group Room ─────────────────────────────────────────
   async getOrCreateGroupRoom(universityId: string) {
     const existing = await this.prisma.chatRoom.findFirst({
       where: { isGroup: true, universityId },
@@ -74,6 +72,38 @@ export class ChatService {
     });
   }
 
+  // ── Create Custom Group ───────────────────────────────────────────
+  // NEW: lets users create a named group with specific members
+  async createCustomGroup(
+    firebaseUid: string,
+    name: string,
+    memberIds: string[],
+  ) {
+    const creator = await this.getDbUser(firebaseUid);
+
+    // Always include the creator
+    const allMemberIds = Array.from(new Set([creator.id, ...memberIds]));
+
+    return this.prisma.chatRoom.create({
+      data: {
+        isGroup: true,
+        name,
+        members: {
+          create: allMemberIds.map((userId) => ({ userId })),
+        },
+      },
+      include: {
+        members: {
+          include: {
+            user: { select: { id: true, displayName: true, photoURL: true } },
+          },
+        },
+        messages: [],
+      },
+    });
+  }
+
+  // ── Join Group Room ───────────────────────────────────────────────
   async joinGroupRoom(firebaseUid: string, roomId: string) {
     const user = await this.getDbUser(firebaseUid);
     const existing = await this.prisma.chatRoomMember.findUnique({
@@ -123,15 +153,62 @@ export class ChatService {
       include: {
         sender: { select: { id: true, displayName: true, photoURL: true } },
         replyTo: {
-          include: {
-            sender: { select: { displayName: true } },
-          },
+          include: { sender: { select: { displayName: true } } },
         },
         reactions: {
-          include: {
-            user: { select: { id: true, displayName: true } },
-          },
+          include: { user: { select: { id: true, displayName: true } } },
         },
+      },
+    });
+  }
+
+  // ── Search Messages ───────────────────────────────────────────────
+  // NEW: full-text search within a room
+  async searchMessages(roomId: string, firebaseUid: string, query: string) {
+    const user = await this.getDbUser(firebaseUid);
+    const member = await this.prisma.chatRoomMember.findUnique({
+      where: { userId_roomId: { userId: user.id, roomId } },
+    });
+    if (!member) throw new ForbiddenException('Not a member of this room');
+
+    return this.prisma.message.findMany({
+      where: {
+        roomId,
+        type: 'text',
+        text: { contains: query, mode: 'insensitive' },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 30,
+      include: {
+        sender: { select: { id: true, displayName: true, photoURL: true } },
+      },
+    });
+  }
+
+  // ── Get Room Media ────────────────────────────────────────────────
+  // NEW: returns all image/video/audio/file messages for a room
+  async getRoomMedia(roomId: string, firebaseUid: string) {
+    const user = await this.getDbUser(firebaseUid);
+    const member = await this.prisma.chatRoomMember.findUnique({
+      where: { userId_roomId: { userId: user.id, roomId } },
+    });
+    if (!member) throw new ForbiddenException('Not a member of this room');
+
+    return this.prisma.message.findMany({
+      where: {
+        roomId,
+        type: { in: ['image', 'video', 'audio', 'file'] },
+        mediaUrl: { not: null },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      select: {
+        id: true,
+        type: true,
+        mediaUrl: true,
+        mediaType: true,
+        createdAt: true,
+        sender: { select: { id: true, displayName: true } },
       },
     });
   }
@@ -141,7 +218,13 @@ export class ChatService {
     roomId: string,
     senderId: string,
     text: string,
-    options?: { mediaUrl?: string; mediaType?: string; type?: string; replyToId?: string },
+    options?: {
+      mediaUrl?: string;
+      mediaType?: string;
+      // NEW: accepts audio types from all browsers
+      type?: 'text' | 'image' | 'video' | 'audio' | 'file';
+      replyToId?: string;
+    },
   ) {
     return this.prisma.message.create({
       data: {
@@ -172,12 +255,10 @@ export class ChatService {
 
     if (existing) {
       if (existing.emoji === emoji) {
-        // Remove reaction if same emoji
         return this.prisma.messageReaction.delete({
           where: { messageId_userId: { messageId, userId: user.id } },
         });
       }
-      // Update reaction
       return this.prisma.messageReaction.update({
         where: { messageId_userId: { messageId, userId: user.id } },
         data: { emoji },
@@ -214,15 +295,26 @@ export class ChatService {
   }
 
   // ── Status ────────────────────────────────────────────────────────
-  async createStatus(firebaseUid: string, data: { text?: string; mediaUrl?: string; type?: string }) {
+  async createStatus(
+    firebaseUid: string,
+    data: {
+      text?: string;
+      mediaUrl?: string;
+      mediaType?: string;
+      type?: string;
+      bgColor?: string;
+    },
+  ) {
     const user = await this.getDbUser(firebaseUid);
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
     return this.prisma.status.create({
       data: {
         userId: user.id,
         text: data.text,
         mediaUrl: data.mediaUrl,
+        mediaType: data.mediaType,
         type: data.type || 'text',
+        bgColor: data.bgColor,
         expiresAt,
       },
       include: {
@@ -232,11 +324,9 @@ export class ChatService {
   }
 
   async getStatuses(firebaseUid: string) {
-    const user = await this.getDbUser(firebaseUid);
+    await this.getDbUser(firebaseUid);
     return this.prisma.status.findMany({
-      where: {
-        expiresAt: { gt: new Date() },
-      },
+      where: { expiresAt: { gt: new Date() } },
       include: {
         user: { select: { id: true, displayName: true, photoURL: true } },
         views: { select: { userId: true } },

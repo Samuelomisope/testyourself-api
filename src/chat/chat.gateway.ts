@@ -28,7 +28,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     console.log(`Client disconnected: ${client.id}`);
   }
 
-  // Join a chat room
   @SubscribeMessage('joinRoom')
   handleJoinRoom(
     @MessageBody() data: { roomId: string },
@@ -38,7 +37,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     client.emit('joinedRoom', { roomId: data.roomId });
   }
 
-  // Leave a chat room
   @SubscribeMessage('leaveRoom')
   handleLeaveRoom(
     @MessageBody() data: { roomId: string },
@@ -47,52 +45,63 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     client.leave(data.roomId);
   }
 
-  // Send a message
   @SubscribeMessage('sendMessage')
-async handleMessage(
-  @MessageBody() data: {
-    roomId: string;
-    senderId: string;
-    text: string;
-    mediaUrl?: string;
-    mediaType?: string;
-    type?: string;
-    replyToId?: string;
-  },
-  @ConnectedSocket() client: Socket,
-) {
-  try {
-    const message = await this.chatService.createMessage(
-      data.roomId,
-      data.senderId,
-      data.text,
-      {
-        mediaUrl: data.mediaUrl,
-        mediaType: data.mediaType,
-        type: data.type,
-        replyToId: data.replyToId,
-      },
-    );
-    this.server.to(data.roomId).emit('newMessage', message);
-  } catch (err) {
-    client.emit('error', { message: 'Failed to send message' });
+  async handleMessage(
+    @MessageBody() data: {
+      roomId: string;
+      senderId: string;
+      text: string;
+      mediaUrl?: string;
+      mediaType?: string;
+      // NEW: now accepts 'audio' type with any browser mime type
+      type?: 'text' | 'image' | 'video' | 'audio' | 'file';
+      replyToId?: string;
+    },
+    @ConnectedSocket() client: Socket,
+  ) {
+    try {
+      const message = await this.chatService.createMessage(
+        data.roomId,
+        data.senderId,
+        data.text,
+        {
+          mediaUrl: data.mediaUrl,
+          mediaType: data.mediaType,
+          type: data.type,
+          replyToId: data.replyToId,
+        },
+      );
+      this.server.to(data.roomId).emit('newMessage', message);
+    } catch (err) {
+      client.emit('error', { message: 'Failed to send message' });
+    }
   }
-}
 
-@SubscribeMessage('reactMessage')
-async handleReaction(
-  @MessageBody() data: { messageId: string; userId: string; emoji: string; roomId: string },
-  @ConnectedSocket() client: Socket,
-) {
-  try {
-    const reaction = await this.chatService.reactToMessage(data.userId, data.messageId, data.emoji);
-    this.server.to(data.roomId).emit('messageReaction', { messageId: data.messageId, reaction });
-  } catch (err) {
-    client.emit('error', { message: 'Failed to react' });
+  @SubscribeMessage('reactMessage')
+  async handleReaction(
+    @MessageBody() data: {
+      messageId: string;
+      userId: string;
+      emoji: string;
+      roomId: string;
+    },
+    @ConnectedSocket() client: Socket,
+  ) {
+    try {
+      const reaction = await this.chatService.reactToMessage(
+        data.userId,
+        data.messageId,
+        data.emoji,
+      );
+      this.server.to(data.roomId).emit('messageReaction', {
+        messageId: data.messageId,
+        reaction,
+      });
+    } catch (err) {
+      client.emit('error', { message: 'Failed to react' });
+    }
   }
-}
 
-  // Typing indicator
   @SubscribeMessage('typing')
   handleTyping(
     @MessageBody() data: { roomId: string; userId: string; isTyping: boolean },
@@ -104,4 +113,3 @@ async handleReaction(
     });
   }
 }
-
