@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuidv4 } from 'uuid';
 
 
@@ -15,34 +16,41 @@ export class UploadService {
   },
 });
 
-  async uploadFile(file: Express.Multer.File, folder: string = 'general'): Promise<string> {
-    const ext = file.originalname.split('.').pop();
-    const key = `${folder}/${uuidv4()}.${ext}`;
+ async uploadFile(file: Express.Multer.File, folder: string = 'general'): Promise<string> {
+  const ext = file.originalname.split('.').pop();
+  const key = `${folder}/${uuidv4()}.${ext}`;
 
-    await this.s3.send(new PutObjectCommand({
+  await this.s3.send(new PutObjectCommand({
+    Bucket: process.env.WASABI_BUCKET_NAME,
+    Key: key,
+    Body: file.buffer,
+    ContentType: file.mimetype,
+  }));
+
+  const signedUrl = await getSignedUrl(
+    this.s3,
+    new GetObjectCommand({
       Bucket: process.env.WASABI_BUCKET_NAME,
       Key: key,
-      Body: file.buffer,
-      ContentType: file.mimetype,
-      ACL: 'public-read',
-    }));
+    }),
+    { expiresIn: 60 * 60 * 24 * 7 } // 7 days
+  );
 
-  const url = `https://${process.env.WASABI_BUCKET_NAME}.s3.${process.env.WASABI_REGION}.wasabisys.com/${key}`;
-console.log('Upload URL:', url);
-return url;
-  }
+  console.log('Upload URL:', signedUrl);
+  return signedUrl;
+}
 
   async deleteFile(url: string): Promise<void> {
-    try {
-      const key = url.split(`${process.env.WASABI_BUCKET_NAME}/`)[1];
-      await this.s3.send(new DeleteObjectCommand({
-        Bucket: process.env.WASABI_BUCKET_NAME,
-        Key: key,
-      }));
-    } catch (err) {
-      console.error('Failed to delete file:', err);
-    }
-
-    
+  try {
+    // Extract just the path before the query string
+    const urlObj = new URL(url);
+    const key = urlObj.pathname.slice(1).split('/').slice(1).join('/');
+    await this.s3.send(new DeleteObjectCommand({
+      Bucket: process.env.WASABI_BUCKET_NAME,
+      Key: key,
+    }));
+  } catch (err) {
+    console.error('Failed to delete file:', err);
   }
+}
 }
