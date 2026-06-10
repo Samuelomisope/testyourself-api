@@ -15,6 +15,7 @@ import { MarketplaceModule } from './marketplace/marketplace.module';
 import { UploadModule } from './upload/upload.module';
 import { ChatModule } from './chat/chat.module';
 import { AiModule } from './ai/ai.module';
+import { FeedbackModule } from './feedback/feedback.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { AiModule } from './ai/ai.module';
     UploadModule,
     ChatModule,
     AiModule,
+    FeedbackModule,
   ],
   controllers: [SearchController],
   providers: [PrismaService], // if not already global

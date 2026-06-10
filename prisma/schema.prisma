@@ -74,6 +74,7 @@ model User {
   reactions      MessageReaction[]
   chatSnapUsername String? @unique
   chatWallpaper String? @default("default")
+  feedbacks    Feedback[]
 }
 
 enum Role {
@@ -363,4 +364,19 @@ model MessageReaction {
   user      User     @relation(fields: [userId], references: [id])
 
   @@unique([messageId, userId])
+}
+
+// ─────────────────────────────────────────
+// FEEDBACK
+// ─────────────────────────────────────────
+model Feedback {
+  id        String   @id @default(uuid())
+  userId    String?
+  rating    Int
+  category  String   // "Bug", "Suggestion", "General"
+  message   String
+  page      String?  // which page they were on
+  createdAt DateTime @default(now())
+
+  user      User?    @relation(fields: [userId], references: [id])
 }
