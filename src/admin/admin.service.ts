@@ -1,9 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class AdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly email: EmailService) {}
 
   async getStats() {
     const [users, materials, products, universities, reports, sellers, buyers, activeListings, soldListings] = await Promise.all([
@@ -141,4 +142,20 @@ export class AdminService {
       data: { isBanned: !user.isBanned },
     });
   }
+
+  async notifyInactiveUsers() {
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+  const inactiveUsers = await this.prisma.user.findMany({
+    where: { lastActiveAt: { lt: sevenDaysAgo }, isBanned: false },
+    select: { email: true, displayName: true },
+  });
+
+  for (const user of inactiveUsers) {
+    await this.email.sendReEngagementEmail(user.email, user.displayName);
+  }
+
+  return { sent: inactiveUsers.length };
+}
 }
