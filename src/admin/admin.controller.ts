@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Delete, Patch, Post, Param, UseGuards,
+  Controller, Get, Delete, Patch, Post, Body, Param, UseGuards,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { FirebaseAuthGuard } from '../auth/firebase-auth.guard';
@@ -120,6 +120,15 @@ async banUser(@Param('id') id: string, @CurrentUser() user: FirebaseUser) {
 @UseGuards(FirebaseAuthGuard)
 async notifyInactiveUsers() {
   return this.adminService.notifyInactiveUsers();
+}
+
+@Post('send-message')
+async sendMessageToUser(
+  @CurrentUser() user: FirebaseUser,
+  @Body() body: { userId: string; subject: string; message: string },
+) {
+  requireAdmin(user);
+  return this.adminService.sendMessageToUser(body.userId, body.subject, body.message);
 }
 
 }

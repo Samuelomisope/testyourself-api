@@ -158,4 +158,27 @@ export class AdminService {
 
   return { sent: inactiveUsers.length };
 }
+
+async sendMessageToUser(userId: string, subject: string, message: string) {
+  const user = await this.prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true, displayName: true },
+  });
+
+  if (!user) throw new NotFoundException(`User not found`);
+
+  await this.email.sendEmail(
+    user.email,
+    subject,
+    `
+    <div style="font-family: sans-serif; max-width: 500px; margin: auto;">
+      <h2 style="color: #7c3aed;">Hey ${user.displayName}! 👋</h2>
+      <p>${message}</p>
+      <p style="margin-top:24px; color:#999; font-size:12px;">If this email landed in spam, please mark it as "Not Spam" to keep receiving updates from TestYourself.</p>
+    </div>
+    `
+  );
+
+  return { success: true, sentTo: user.email };
+}
 }
