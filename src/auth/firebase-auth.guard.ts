@@ -1,8 +1,11 @@
 import { Injectable, CanActivate, ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import * as admin from 'firebase-admin';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class FirebaseAuthGuard implements CanActivate {
+  constructor(private readonly prisma: PrismaService) {}
+
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
     const authHeader = request.headers.authorization;
@@ -28,8 +31,14 @@ export class FirebaseAuthGuard implements CanActivate {
         picture: decodedToken.picture,
       };
 
+      // update lastActiveAt in the background
+      this.prisma.user.update({
+        where: { firebaseUid: decodedToken.uid },
+        data: { lastActiveAt: new Date() },
+      }).catch(() => {}); // silent fail — don't block the request
+
       return true;
-    } catch (error) {
+    } catch {
       throw new UnauthorizedException('Invalid or expired token');
     }
   }
