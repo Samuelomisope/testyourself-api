@@ -108,23 +108,25 @@ model Admin {
 // STUDY MATERIAL
 // ─────────────────────────────────────────
 model StudyMaterial {
-  id           String   @id @default(uuid())
-  title        String
-  description  String?
-  fileUrl      String
-  fileType     String   // pdf, docx, pptx, etc
-  fileSize     Int?     // in bytes
-  userId       String
-  universityId String
-  faculty      String?
-  department   String?
-  isPublic     Boolean  @default(true)
-  downloadCount Int     @default(0)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id            String   @id @default(uuid())
+  title         String
+  description   String?
+  fileUrl       String
+  fileType      String
+  fileSize      Int?
+  userId        String
+  universityId  String
+  faculty       String?      // course code e.g. "CHM 101"
+  department    String?      // e.g. "MINING ENGINEERING"
+  level         String?      // e.g. "100" | "200" | "300" | "400" | "500"
+  semester      String?      // e.g. "first" | "second"
+  isPublic      Boolean  @default(true)
+  downloadCount Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  user         User       @relation(fields: [userId], references: [id])
-  university   University @relation(fields: [universityId], references: [id])
+  user          User       @relation(fields: [userId], references: [id])
+  university    University @relation(fields: [universityId], references: [id])
 }
 
 // ─────────────────────────────────────────

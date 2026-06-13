@@ -25,8 +25,10 @@ export class StudyMaterialController {
     @Body() body: {
       title: string;
       description?: string;
-      faculty?: string;
-      department?: string;
+      faculty?: string;       // course code e.g. "CHM 101"
+      department?: string;    // e.g. "MINING ENGINEERING"
+      level?: string;         // e.g. "100" | "200" | "300" | "400" | "500"
+      semester?: string;      // "first" | "second"
       isPublic?: string;
       university?: string;
     },
@@ -64,45 +66,53 @@ export class StudyMaterialController {
       universityId,
       faculty: body.faculty,
       department: body.department,
+      level: body.level,
+      semester: body.semester,
       isPublic: body.isPublic !== 'false',
     });
   }
 
   // Get all materials — all public + own private
- @Get()
-async findAll(
-  @CurrentUser() currentUser: FirebaseUser,
-  @Query('faculty') faculty?: string,
-  @Query('department') department?: string,
-  @Query('search') search?: string,
-) {
-  const user = await this.prisma.user.findUnique({ where: { firebaseUid: currentUser.uid } });
-  if (!user) return [];
+  @Get()
+  async findAll(
+    @CurrentUser() currentUser: FirebaseUser,
+    @Query('faculty') faculty?: string,
+    @Query('department') department?: string,
+    @Query('level') level?: string,
+    @Query('semester') semester?: string,
+    @Query('search') search?: string,
+  ) {
+    const user = await this.prisma.user.findUnique({ where: { firebaseUid: currentUser.uid } });
+    if (!user) return [];
 
-  const materials = await this.prisma.studyMaterial.findMany({
-    where: {
-      ...(faculty && { faculty }),
-      ...(department && { department }),
-      ...(search && {
+    const materials = await this.prisma.studyMaterial.findMany({
+      where: {
+        ...(faculty && { faculty }),
+        ...(department && { department }),
+        ...(level && { level }),
+        ...(semester && { semester }),
+        ...(search && {
+          OR: [
+            { title: { contains: search, mode: 'insensitive' } },
+            { description: { contains: search, mode: 'insensitive' } },
+            { faculty: { contains: search, mode: 'insensitive' } },
+            { department: { contains: search, mode: 'insensitive' } },
+          ],
+        }),
         OR: [
-          { title: { contains: search, mode: 'insensitive' } },
-          { description: { contains: search, mode: 'insensitive' } },
+          { isPublic: true },
+          { userId: user.id },
         ],
-      }),
-      OR: [
-        { isPublic: true },
-        { userId: user.id },
-      ],
-    },
-    orderBy: { createdAt: 'desc' },
-    include: {
-      user: { select: { displayName: true, photoURL: true } },
-      university: { select: { id: true, name: true, shortName: true } },
-    },
-  });
+      },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        user: { select: { displayName: true, photoURL: true } },
+        university: { select: { id: true, name: true, shortName: true } },
+      },
+    });
 
-  return Promise.all(materials.map(m => this.studyMaterialService.withSignedUrl(m)));
-}
+    return Promise.all(materials.map(m => this.studyMaterialService.withSignedUrl(m)));
+  }
 
   // Get my uploaded materials
   @Get('my')

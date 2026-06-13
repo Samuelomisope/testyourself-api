@@ -1,0 +1,2 @@
+ALTER TABLE "StudyMaterial" ADD COLUMN IF NOT EXISTS "level" TEXT;
+ALTER TABLE "StudyMaterial" ADD COLUMN IF NOT EXISTS "semester" TEXT;

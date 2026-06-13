@@ -16,35 +16,34 @@ export class StudyMaterialService {
         accessKeyId: process.env.WASABI_ACCESS_KEY!,
         secretAccessKey: process.env.WASABI_SECRET_KEY!,
       },
-      forcePathStyle: true, // keep this for uploads
+      forcePathStyle: true,
     });
   }
 
   // Generate a signed URL from a stored fileUrl
   async getSignedFileUrl(fileUrl: string): Promise<string> {
-  console.log('fileUrl:', fileUrl);
-  
-  let key: string;
-  
-  // Handle both path-style and virtual-hosted URLs
-  if (fileUrl.includes(`/${process.env.WASABI_BUCKET_NAME}/`)) {
-    key = fileUrl.split(`/${process.env.WASABI_BUCKET_NAME}/`)[1];
-  } else if (fileUrl.includes('.wasabisys.com/')) {
-    key = fileUrl.split('.wasabisys.com/')[1];
-  } else {
-    key = fileUrl; // already a key
+    console.log('fileUrl:', fileUrl);
+
+    let key: string;
+
+    if (fileUrl.includes(`/${process.env.WASABI_BUCKET_NAME}/`)) {
+      key = fileUrl.split(`/${process.env.WASABI_BUCKET_NAME}/`)[1];
+    } else if (fileUrl.includes('.wasabisys.com/')) {
+      key = fileUrl.split('.wasabisys.com/')[1];
+    } else {
+      key = fileUrl;
+    }
+
+    console.log('extracted key:', key);
+
+    if (!key) throw new Error(`Could not extract key from fileUrl: ${fileUrl}`);
+
+    const command = new GetObjectCommand({
+      Bucket: process.env.WASABI_BUCKET_NAME,
+      Key: key,
+    });
+    return getSignedUrl(this.s3, command, { expiresIn: 3600 });
   }
-
-  console.log('extracted key:', key);
-
-  if (!key) throw new Error(`Could not extract key from fileUrl: ${fileUrl}`);
-
-  const command = new GetObjectCommand({
-    Bucket: process.env.WASABI_BUCKET_NAME,
-    Key: key,
-  });
-  return getSignedUrl(this.s3, command, { expiresIn: 3600 });
-}
 
   // Attach signed URL to a material object
   async withSignedUrl(material: any) {
@@ -62,7 +61,6 @@ export class StudyMaterialService {
       ContentType: mimeType,
     });
     await this.s3.send(command);
-    // Store path-style URL in DB (used to extract key later)
     return `${process.env.WASABI_ENDPOINT}/${process.env.WASABI_BUCKET_NAME}/${key}`;
   }
 
@@ -88,6 +86,8 @@ export class StudyMaterialService {
     universityId: string;
     faculty?: string;
     department?: string;
+    level?: string;
+    semester?: string;
     isPublic?: boolean;
   }) {
     const fileUrl = await this.uploadToWasabi(data.fileBuffer, data.originalName, data.fileType);
@@ -103,6 +103,8 @@ export class StudyMaterialService {
         universityId: data.universityId,
         faculty: data.faculty,
         department: data.department,
+        level: data.level,
+        semester: data.semester,
         isPublic: data.isPublic ?? true,
       },
       include: { user: { select: { displayName: true, photoURL: true } } },
@@ -157,10 +159,12 @@ export class StudyMaterialService {
     return this.prisma.studyMaterial.delete({ where: { id } });
   }
 
-  // Get all materials for a university
+  // Get all materials for a university (with all filters)
   async findByUniversity(universityId: string, userId: string, filters?: {
     faculty?: string;
     department?: string;
+    level?: string;
+    semester?: string;
     search?: string;
   }) {
     const materials = await this.prisma.studyMaterial.findMany({
@@ -168,6 +172,8 @@ export class StudyMaterialService {
         universityId,
         ...(filters?.faculty && { faculty: filters.faculty }),
         ...(filters?.department && { department: filters.department }),
+        ...(filters?.level && { level: filters.level }),
+        ...(filters?.semester && { semester: filters.semester }),
         ...(filters?.search && {
           OR: [
             { title: { contains: filters.search, mode: 'insensitive' } },
