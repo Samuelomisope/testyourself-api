@@ -38,4 +38,21 @@ export class EmailService {
       `
     );
   }
+
+  async sendUpdateAnnouncement(to: string, update: { title: string; description: string }) {
+  return this.sendEmail(
+    to,
+    `📢 ${update.title}`,
+    `
+    <div style="font-family: sans-serif; max-width: 500px; margin: auto;">
+      <h2 style="color: #7c3aed;">TestYourself Update 🚀</h2>
+      <p>${update.description}</p>
+      <a href="https://your-app-url.com/study" style="display:inline-block; margin-top:16px; padding: 12px 24px; background:#7c3aed; color:white; border-radius:8px; text-decoration:none; font-weight:bold;">
+        Check it out
+      </a>
+      <p style="margin-top:24px; color:#999; font-size:12px;">You're receiving this because you're registered on TestYourself.</p>
+    </div>
+    `
+  );
+}
 }

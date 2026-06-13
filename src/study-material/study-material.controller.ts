@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Delete, Param, Query,
+  Controller, Get, Post, Patch, Delete, Param, Query,
   UseGuards, UseInterceptors, UploadedFile, Body
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -17,7 +17,6 @@ export class StudyMaterialController {
     private readonly prisma: PrismaService,
   ) {}
 
-  // Upload a study material
   @Post('upload')
   @UseInterceptors(FileInterceptor('file'))
   async upload(
@@ -25,10 +24,10 @@ export class StudyMaterialController {
     @Body() body: {
       title: string;
       description?: string;
-      faculty?: string;       // course code e.g. "CHM 101"
-      department?: string;    // e.g. "MINING ENGINEERING"
-      level?: string;         // e.g. "100" | "200" | "300" | "400" | "500"
-      semester?: string;      // "first" | "second"
+      faculty?: string;
+      department?: string;
+      level?: string;
+      semester?: string;
       isPublic?: string;
       university?: string;
     },
@@ -72,7 +71,6 @@ export class StudyMaterialController {
     });
   }
 
-  // Get all materials — all public + own private
   @Get()
   async findAll(
     @CurrentUser() currentUser: FirebaseUser,
@@ -114,7 +112,6 @@ export class StudyMaterialController {
     return Promise.all(materials.map(m => this.studyMaterialService.withSignedUrl(m)));
   }
 
-  // Get my uploaded materials
   @Get('my')
   async findMine(@CurrentUser() currentUser: FirebaseUser) {
     const user = await this.prisma.user.findUnique({ where: { firebaseUid: currentUser.uid } });
@@ -122,14 +119,39 @@ export class StudyMaterialController {
     return this.studyMaterialService.findByUser(user.id);
   }
 
-  // Get one material + increment download
   @Get(':id')
   async findOne(@Param('id') id: string) {
     await this.studyMaterialService.incrementDownload(id);
     return this.studyMaterialService.findOne(id);
   }
 
-  // Delete a material
+  @Patch(':id')
+  async update(
+    @Param('id') id: string,
+    @Body() body: {
+      title?: string;
+      description?: string;
+      faculty?: string;
+      department?: string;
+      level?: string;
+      semester?: string;
+      isPublic?: string;
+    },
+    @CurrentUser() currentUser: FirebaseUser,
+  ) {
+    const user = await this.prisma.user.findUnique({ where: { firebaseUid: currentUser.uid } });
+    if (!user) throw new Error('User not found');
+    return this.studyMaterialService.update(id, user.id, {
+      title: body.title,
+      description: body.description,
+      faculty: body.faculty,
+      department: body.department,
+      level: body.level,
+      semester: body.semester,
+      isPublic: body.isPublic === undefined ? undefined : body.isPublic !== 'false',
+    });
+  }
+
   @Delete(':id')
   async delete(@Param('id') id: string, @CurrentUser() currentUser: FirebaseUser) {
     const user = await this.prisma.user.findUnique({ where: { firebaseUid: currentUser.uid } });

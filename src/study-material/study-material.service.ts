@@ -20,12 +20,8 @@ export class StudyMaterialService {
     });
   }
 
-  // Generate a signed URL from a stored fileUrl
   async getSignedFileUrl(fileUrl: string): Promise<string> {
-    console.log('fileUrl:', fileUrl);
-
     let key: string;
-
     if (fileUrl.includes(`/${process.env.WASABI_BUCKET_NAME}/`)) {
       key = fileUrl.split(`/${process.env.WASABI_BUCKET_NAME}/`)[1];
     } else if (fileUrl.includes('.wasabisys.com/')) {
@@ -33,11 +29,7 @@ export class StudyMaterialService {
     } else {
       key = fileUrl;
     }
-
-    console.log('extracted key:', key);
-
     if (!key) throw new Error(`Could not extract key from fileUrl: ${fileUrl}`);
-
     const command = new GetObjectCommand({
       Bucket: process.env.WASABI_BUCKET_NAME,
       Key: key,
@@ -45,13 +37,11 @@ export class StudyMaterialService {
     return getSignedUrl(this.s3, command, { expiresIn: 3600 });
   }
 
-  // Attach signed URL to a material object
   async withSignedUrl(material: any) {
     const signedUrl = await this.getSignedFileUrl(material.fileUrl);
     return { ...material, signedUrl };
   }
 
-  // Upload file to Wasabi
   async uploadToWasabi(buffer: Buffer, originalName: string, mimeType: string): Promise<string> {
     const key = `study-materials/${uuidv4()}-${originalName}`;
     const command = new PutObjectCommand({
@@ -64,7 +54,6 @@ export class StudyMaterialService {
     return `${process.env.WASABI_ENDPOINT}/${process.env.WASABI_BUCKET_NAME}/${key}`;
   }
 
-  // Delete file from Wasabi
   async deleteFromWasabi(fileUrl: string): Promise<void> {
     const key = fileUrl.split(`${process.env.WASABI_BUCKET_NAME}/`)[1];
     const command = new DeleteObjectCommand({
@@ -74,7 +63,6 @@ export class StudyMaterialService {
     await this.s3.send(command);
   }
 
-  // Create study material
   async create(data: {
     title: string;
     description?: string;
@@ -91,7 +79,6 @@ export class StudyMaterialService {
     isPublic?: boolean;
   }) {
     const fileUrl = await this.uploadToWasabi(data.fileBuffer, data.originalName, data.fileType);
-
     const material = await this.prisma.studyMaterial.create({
       data: {
         title: data.title,
@@ -109,7 +96,6 @@ export class StudyMaterialService {
       },
       include: { user: { select: { displayName: true, photoURL: true } } },
     });
-
     await this.prisma.activityLog.create({
       data: {
         userId: data.userId,
@@ -118,11 +104,42 @@ export class StudyMaterialService {
         href: '/study-material',
       },
     });
-
     return this.withSignedUrl(material);
   }
 
-  // Get materials uploaded by a specific user
+  // ── UPDATE metadata (owner only) ─────────────────────────────
+  async update(id: string, userId: string, data: {
+    title?: string;
+    description?: string;
+    faculty?: string;
+    department?: string;
+    level?: string;
+    semester?: string;
+    isPublic?: boolean;
+  }) {
+    const material = await this.prisma.studyMaterial.findUnique({ where: { id } });
+    if (!material) throw new NotFoundException('Study material not found');
+    if (material.userId !== userId) throw new ForbiddenException('Not your material');
+
+    const updated = await this.prisma.studyMaterial.update({
+      where: { id },
+      data: {
+        ...(data.title !== undefined && { title: data.title }),
+        ...(data.description !== undefined && { description: data.description }),
+        ...(data.faculty !== undefined && { faculty: data.faculty }),
+        ...(data.department !== undefined && { department: data.department }),
+        ...(data.level !== undefined && { level: data.level }),
+        ...(data.semester !== undefined && { semester: data.semester }),
+        ...(data.isPublic !== undefined && { isPublic: data.isPublic }),
+      },
+      include: {
+        user: { select: { displayName: true, photoURL: true } },
+        university: { select: { id: true, name: true, shortName: true } },
+      },
+    });
+    return this.withSignedUrl(updated);
+  }
+
   async findByUser(userId: string) {
     const materials = await this.prisma.studyMaterial.findMany({
       where: { userId },
@@ -132,7 +149,6 @@ export class StudyMaterialService {
     return Promise.all(materials.map(m => this.withSignedUrl(m)));
   }
 
-  // Get one material
   async findOne(id: string) {
     const material = await this.prisma.studyMaterial.findUnique({
       where: { id },
@@ -142,7 +158,6 @@ export class StudyMaterialService {
     return this.withSignedUrl(material);
   }
 
-  // Increment download count
   async incrementDownload(id: string) {
     return this.prisma.studyMaterial.update({
       where: { id },
@@ -150,7 +165,6 @@ export class StudyMaterialService {
     });
   }
 
-  // Delete material
   async delete(id: string, userId: string) {
     const material = await this.prisma.studyMaterial.findUnique({ where: { id } });
     if (!material) throw new NotFoundException('Study material not found');
@@ -159,7 +173,6 @@ export class StudyMaterialService {
     return this.prisma.studyMaterial.delete({ where: { id } });
   }
 
-  // Get all materials for a university (with all filters)
   async findByUniversity(universityId: string, userId: string, filters?: {
     faculty?: string;
     department?: string;
@@ -180,10 +193,7 @@ export class StudyMaterialService {
             { description: { contains: filters.search, mode: 'insensitive' } },
           ],
         }),
-        OR: [
-          { isPublic: true },
-          { userId },
-        ],
+        OR: [{ isPublic: true }, { userId }],
       },
       orderBy: { createdAt: 'desc' },
       include: { user: { select: { displayName: true, photoURL: true } } },

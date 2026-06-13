@@ -16,6 +16,7 @@ import { UploadModule } from './upload/upload.module';
 import { ChatModule } from './chat/chat.module';
 import { AiModule } from './ai/ai.module';
 import { FeedbackModule } from './feedback/feedback.module';
+import { AnnouncementController } from './announcement/announcement.controller';
 
 @Module({
   imports: [
@@ -31,8 +32,9 @@ import { FeedbackModule } from './feedback/feedback.module';
     ChatModule,
     AiModule,
     FeedbackModule,
+    AnnouncementController,
   ],
-  controllers: [SearchController],
+  controllers: [SearchController, AnnouncementController],
   providers: [PrismaService], // if not already global
 })
 export class AppModule implements OnModuleInit {
