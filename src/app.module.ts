@@ -32,7 +32,6 @@ import { AnnouncementController } from './announcement/announcement.controller';
     ChatModule,
     AiModule,
     FeedbackModule,
-    AnnouncementController,
   ],
   controllers: [SearchController, AnnouncementController],
   providers: [PrismaService], // if not already global
