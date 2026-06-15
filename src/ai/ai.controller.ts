@@ -10,59 +10,59 @@ export class AiController {
   constructor(private readonly aiService: AiService) {}
 
   @Post('quiz')
-  async generateQuiz(
-    @Body()
-    body: {
-      text: string;
-      count?: number;
-      difficulty?: string;
-      imageData?: string;
-      imageMediaType?: string;
-    },
-    @CurrentUser() _user: FirebaseUser,
-  ) {
-    return this.aiService.generateQuiz(
-      body.text,
-      body.count,
-      body.difficulty,
-      body.imageData,
-      body.imageMediaType,
-    );
-  }
+async generateQuiz(
+  @Body()
+  body: {
+    text: string;
+    count?: number;
+    difficulty?: string;
+    fileData?: string;
+    fileMimeType?: string;
+  },
+  @CurrentUser() _user: FirebaseUser,
+) {
+  return this.aiService.generateQuiz(
+    body.text,
+    body.count,
+    body.difficulty,
+    body.fileData,
+    body.fileMimeType,
+  );
+}
 
-  @Post('ask')
-  async askQuestion(
-    @Body()
-    body: {
-      question: string;
-      imageData?: string;
-      imageMediaType?: string;
-    },
-    @CurrentUser() _user: FirebaseUser,
-  ) {
-    return this.aiService.askQuestion(
-      body.question,
-      body.imageData,
-      body.imageMediaType,
-    );
-  }
+@Post('ask')
+async askQuestion(
+  @Body()
+  body: {
+    question: string;
+    fileData?: string;
+    fileMimeType?: string;
+  },
+  @CurrentUser() _user: FirebaseUser,
+) {
+  return this.aiService.askQuestion(
+    body.question,
+    body.fileData,
+    body.fileMimeType,
+  );
+}
 
-  @Post('summarize')
-  async summarize(
-    @Body()
-    body: {
-      text: string;
-      style?: string;
-      imageData?: string;
-      imageMediaType?: string;
-    },
-    @CurrentUser() _user: FirebaseUser,
-  ) {
-    return this.aiService.summarize(
-      body.text,
-      body.style,
-      body.imageData,
-      body.imageMediaType,
-    );
-  }
+@Post('summarize')
+async summarize(
+  @Body()
+  body: {
+    text: string;
+    style?: string;
+    fileData?: string;
+    fileMimeType?: string;
+  },
+  @CurrentUser() _user: FirebaseUser,
+) {
+  return this.aiService.summarize(
+    body.text,
+    body.style,
+    body.fileData,
+    body.fileMimeType,
+  );
+}
 }
