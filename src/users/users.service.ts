@@ -6,18 +6,15 @@ import type { FirebaseUser } from '../common/decorators/current-user.decorator';
 export class UsersService {
   constructor(private prisma: PrismaService) {}
 
-  async getRecentActivity(uid: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { firebaseUid: uid },
-    });
-    if (!user) return [];
-
-    return this.prisma.activityLog.findMany({
-      where: { userId: user.id },
-      orderBy: { createdAt: 'desc' },
-      take: 5,
-    });
-  }
+ async getRecentActivity(uid: string, type?: string) {
+  const user = await this.prisma.user.findUnique({ where: { firebaseUid: uid } });
+  if (!user) return [];
+  return this.prisma.activityLog.findMany({
+    where: { userId: user.id, ...(type ? { type } : {}) },
+    orderBy: { createdAt: 'desc' },
+    take: 50,
+  });
+}
 
   async searchUsers(q: string) {
     return this.prisma.user.findMany({
@@ -150,4 +147,15 @@ export class UsersService {
       leaderboardScore: leaderboard?.score || 0,
     };
   }
+
+  async logActivity(uid: string, type: string, description: string, href?: string) {
+  const user = await this.prisma.user.findUnique({ where: { firebaseUid: uid } });
+  if (!user) return;
+  return this.prisma.activityLog.create({
+    data: { userId: user.id, type, description, href },
+  });
+}
+
+
+
 }
