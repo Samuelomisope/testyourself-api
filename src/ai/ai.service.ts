@@ -43,30 +43,34 @@ export class AiService {
   }
 
   // ─── Gemini: PDF + video ──────────────────────────────────────────
-  private async askGemini(
-    system: string,
-    prompt: string,
-    fileData: string,
-    fileMimeType: string,
-  ): Promise<string> {
-    const model = this.gemini.getGenerativeModel({
-      model: 'gemini-2.0-flash',
-      systemInstruction: system,
-    });
+ // ─── Gemini: PDF + video ──────────────────────────────────────────
+private async askGemini(
+  system: string,
+  prompt: string,
+  fileData: string,
+  fileMimeType: string,
+): Promise<string> {
+  const models = ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-flash-8b'];
 
-    const result = await model.generateContent([
-      {
-        inlineData: {
-          data: fileData,
-          mimeType: fileMimeType,
-        },
-      },
-      prompt,
-    ]);
-
-    return result.response.text();
+  for (const modelName of models) {
+    try {
+      const model = this.gemini.getGenerativeModel({
+        model: modelName,
+        systemInstruction: system,
+      });
+      const result = await model.generateContent([
+        { inlineData: { data: fileData, mimeType: fileMimeType } },
+        prompt,
+      ]);
+      return result.response.text();
+    } catch (err: any) {
+      if (err?.status === 429) continue;
+      throw err;
+    }
   }
 
+  throw new Error('All Gemini models are rate-limited. Please try again later.');
+}
   // ─── Router: picks Groq or Gemini based on file type ─────────────
   private async ask(
     system: string,
