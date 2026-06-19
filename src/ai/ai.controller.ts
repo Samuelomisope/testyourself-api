@@ -45,4 +45,20 @@ export class AiController {
     const fileMimeType = file ? file.mimetype : undefined;
     return this.aiService.summarize(body.text, body.style, fileData, fileMimeType);
   }
+
+  @Post('flashcards')
+@UseInterceptors(FileInterceptor('file'))
+async generateFlashcards(
+  @UploadedFile() file: Express.Multer.File,
+  @Body() body: { text?: string; count?: string },
+) {
+  const fileData = file ? file.buffer.toString('base64') : undefined;
+  const fileMimeType = file ? file.mimetype : undefined;
+  return this.aiService.generateFlashcards(
+    body.text,
+    body.count ? parseInt(body.count) : 10,
+    fileData,
+    fileMimeType,
+  );
+}
 }

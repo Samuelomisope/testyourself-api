@@ -17,6 +17,7 @@ import { ChatModule } from './chat/chat.module';
 import { AiModule } from './ai/ai.module';
 import { FeedbackModule } from './feedback/feedback.module';
 import { AnnouncementModule } from './announcement/announcement.module';
+import { FlashcardModule } from './flashcard/flashcard.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { AnnouncementModule } from './announcement/announcement.module';
     AiModule,
     FeedbackModule,
     AnnouncementModule,
+    FlashcardModule,
   ],
   controllers: [SearchController],
   providers: [PrismaService], // if not already global

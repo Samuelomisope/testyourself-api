@@ -163,4 +163,31 @@ ${text ? `Notes:\n${text}` : ''}`;
     );
     return { summary };
   }
-}
+async generateFlashcards(
+    text?: string,
+    count: number = 10,
+    fileData?: string,
+    fileMimeType?: string,
+  ) {
+    const fileType = fileMimeType?.startsWith('video/') ? 'video' :
+                     fileMimeType === 'application/pdf' ? 'PDF' :
+                     fileMimeType?.startsWith('image/') ? 'image' : 'text';
+
+    const prompt = `Generate ${count} flashcards from this ${fileType}.
+Return ONLY a valid JSON array. Format:
+[{"front":"...","back":"..."}]
+
+${text ? `Text: ${text}` : ''}`;
+
+    const raw = await this.ask(
+      'You are TESTYOURSELF AI, a study assistant. Return only raw JSON arrays with no markdown backticks, no explanation.',
+      prompt,
+      fileData,
+      fileMimeType,
+    );
+
+    const flashcards = JSON.parse(raw.replace(/```json|```/g, '').trim());
+    return { flashcards };
+  }
+  }
+  

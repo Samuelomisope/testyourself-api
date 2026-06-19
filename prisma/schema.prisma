@@ -30,6 +30,7 @@ model University {
   marketplaceItems MarketplaceItem[]
   chatRooms   ChatRoom[]
   admins      Admin[]
+  flashcardDecks   FlashcardDeck[]
 }
 
 // ─────────────────────────────────────────
@@ -75,6 +76,9 @@ model User {
   chatSnapUsername String? @unique
   chatWallpaper String? @default("default")
   feedbacks    Feedback[]
+  flashcardDecks       FlashcardDeck[]
+flashcardProgress    FlashcardProgress[]
+flashcardReviewLogs  FlashcardReviewLog[]
 }
 
 enum Role {
@@ -124,6 +128,7 @@ model StudyMaterial {
   downloadCount Int      @default(0)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  flashcardDecks   FlashcardDeck[]
 
   user          User       @relation(fields: [userId], references: [id])
   university    University @relation(fields: [universityId], references: [id])
@@ -381,4 +386,86 @@ model Feedback {
   createdAt DateTime @default(now())
 
   user      User?    @relation(fields: [userId], references: [id])
+}
+
+// ─────────────────────────────────────────
+// FLASHCARDS
+// ─────────────────────────────────────────
+model FlashcardDeck {
+  id               String     @id @default(uuid())
+  title            String
+  description      String?
+  userId           String                       // creator/owner
+  universityId     String
+  isPublic         Boolean    @default(true)
+  sourceType       FlashcardSourceType @default(MANUAL)
+  sourceMaterialId String?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  user             User           @relation(fields: [userId], references: [id])
+  university       University     @relation(fields: [universityId], references: [id])
+  sourceMaterial   StudyMaterial? @relation(fields: [sourceMaterialId], references: [id])
+  cards            Flashcard[]
+}
+
+enum FlashcardSourceType {
+  MANUAL
+  AI_GENERATED
+}
+
+// Flashcard holds only the CONTENT (front/back) — no per-user progress fields,
+// since the same card can be reviewed independently by many users on shared decks.
+model Flashcard {
+  id        String   @id @default(uuid())
+  deckId    String
+  front     String
+  back      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deck      FlashcardDeck         @relation(fields: [deckId], references: [id])
+  progress  FlashcardProgress[]
+  reviewLogs FlashcardReviewLog[]
+}
+
+// One row per (user, flashcard) pair — this is where SM-2 state actually lives.
+// Lets two different users studying the same shared deck each have independent
+// scheduling without overwriting each other.
+model FlashcardProgress {
+  id             String   @id @default(uuid())
+  userId         String
+  flashcardId    String
+
+  easeFactor     Float    @default(2.5)
+  interval       Int      @default(0)      // days until next review
+  repetitions    Int      @default(0)      // consecutive correct reviews
+  nextReviewDate DateTime @default(now())
+  lastReviewedAt DateTime?
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user           User      @relation(fields: [userId], references: [id])
+  flashcard      Flashcard @relation(fields: [flashcardId], references: [id])
+
+  @@unique([userId, flashcardId])
+}
+
+model FlashcardReviewLog {
+  id          String       @id @default(uuid())
+  flashcardId String
+  userId      String
+  rating      ReviewRating
+  reviewedAt  DateTime     @default(now())
+
+  flashcard   Flashcard @relation(fields: [flashcardId], references: [id])
+  user        User      @relation(fields: [userId], references: [id])
+}
+
+enum ReviewRating {
+  AGAIN
+  HARD
+  GOOD
+  EASY
 }
