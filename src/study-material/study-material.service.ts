@@ -10,11 +10,11 @@ export class StudyMaterialService {
 
   constructor(private prisma: PrismaService) {
     this.s3 = new S3Client({
-      region: process.env.WASABI_REGION,
-      endpoint: process.env.WASABI_ENDPOINT,
+      region: 'auto',
+      endpoint: process.env.R2_ENDPOINT,
       credentials: {
-        accessKeyId: process.env.WASABI_ACCESS_KEY!,
-        secretAccessKey: process.env.WASABI_SECRET_KEY!,
+        accessKeyId: process.env.R2_ACCESS_KEY!,
+        secretAccessKey: process.env.R2_SECRET_KEY!,
       },
       forcePathStyle: true,
     });
@@ -22,16 +22,19 @@ export class StudyMaterialService {
 
   async getSignedFileUrl(fileUrl: string): Promise<string> {
     let key: string;
-    if (fileUrl.includes(`/${process.env.WASABI_BUCKET_NAME}/`)) {
-      key = fileUrl.split(`/${process.env.WASABI_BUCKET_NAME}/`)[1];
+    if (fileUrl.includes(`/${process.env.R2_BUCKET_NAME}/`)) {
+      key = fileUrl.split(`/${process.env.R2_BUCKET_NAME}/`)[1];
+    } else if (fileUrl.includes('.r2.cloudflarestorage.com/')) {
+      key = fileUrl.split('.r2.cloudflarestorage.com/')[1];
     } else if (fileUrl.includes('.wasabisys.com/')) {
+      // Legacy URLs from before migration — still need to resolve these keys
       key = fileUrl.split('.wasabisys.com/')[1];
     } else {
       key = fileUrl;
     }
     if (!key) throw new Error(`Could not extract key from fileUrl: ${fileUrl}`);
     const command = new GetObjectCommand({
-      Bucket: process.env.WASABI_BUCKET_NAME,
+      Bucket: process.env.R2_BUCKET_NAME,
       Key: key,
     });
     return getSignedUrl(this.s3, command, { expiresIn: 3600 });
@@ -42,22 +45,29 @@ export class StudyMaterialService {
     return { ...material, signedUrl };
   }
 
-  async uploadToWasabi(buffer: Buffer, originalName: string, mimeType: string): Promise<string> {
+  async uploadToR2(buffer: Buffer, originalName: string, mimeType: string): Promise<string> {
     const key = `study-materials/${uuidv4()}-${originalName}`;
     const command = new PutObjectCommand({
-      Bucket: process.env.WASABI_BUCKET_NAME,
+      Bucket: process.env.R2_BUCKET_NAME,
       Key: key,
       Body: buffer,
       ContentType: mimeType,
     });
     await this.s3.send(command);
-    return `${process.env.WASABI_ENDPOINT}/${process.env.WASABI_BUCKET_NAME}/${key}`;
+    return `${process.env.R2_ENDPOINT}/${process.env.R2_BUCKET_NAME}/${key}`;
   }
 
-  async deleteFromWasabi(fileUrl: string): Promise<void> {
-    const key = fileUrl.split(`${process.env.WASABI_BUCKET_NAME}/`)[1];
+  async deleteFromR2(fileUrl: string): Promise<void> {
+    let key: string;
+    if (fileUrl.includes(`${process.env.R2_BUCKET_NAME}/`)) {
+      key = fileUrl.split(`${process.env.R2_BUCKET_NAME}/`)[1];
+    } else if (fileUrl.includes('.wasabisys.com/')) {
+      key = fileUrl.split('.wasabisys.com/')[1];
+    } else {
+      key = fileUrl;
+    }
     const command = new DeleteObjectCommand({
-      Bucket: process.env.WASABI_BUCKET_NAME,
+      Bucket: process.env.R2_BUCKET_NAME,
       Key: key,
     });
     await this.s3.send(command);
@@ -78,7 +88,7 @@ export class StudyMaterialService {
     semester?: string;
     isPublic?: boolean;
   }) {
-    const fileUrl = await this.uploadToWasabi(data.fileBuffer, data.originalName, data.fileType);
+    const fileUrl = await this.uploadToR2(data.fileBuffer, data.originalName, data.fileType);
     const material = await this.prisma.studyMaterial.create({
       data: {
         title: data.title,
@@ -169,7 +179,7 @@ export class StudyMaterialService {
     const material = await this.prisma.studyMaterial.findUnique({ where: { id } });
     if (!material) throw new NotFoundException('Study material not found');
     if (material.userId !== userId) throw new ForbiddenException('Not your material');
-    await this.deleteFromWasabi(material.fileUrl);
+    await this.deleteFromR2(material.fileUrl);
     return this.prisma.studyMaterial.delete({ where: { id } });
   }
 
