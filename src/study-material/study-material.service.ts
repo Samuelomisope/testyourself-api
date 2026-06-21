@@ -26,10 +26,11 @@ export class StudyMaterialService {
       key = fileUrl.split(`/${process.env.R2_BUCKET_NAME}/`)[1];
     } else if (fileUrl.includes('.r2.cloudflarestorage.com/')) {
       key = fileUrl.split('.r2.cloudflarestorage.com/')[1];
-    } else if (fileUrl.includes('.wasabisys.com/')) {
-      // Legacy URLs from before migration — still need to resolve these keys
-      key = fileUrl.split('.wasabisys.com/')[1];
-    } else {
+   } else if (fileUrl.includes('.wasabisys.com/')) {
+  const afterHost = fileUrl.split('.wasabisys.com/')[1];
+  const segments = afterHost.split('/');
+  key = segments[0] === 'testyourself' ? segments.slice(1).join('/') : afterHost;
+} else {
       key = fileUrl;
     }
     if (!key) throw new Error(`Could not extract key from fileUrl: ${fileUrl}`);
