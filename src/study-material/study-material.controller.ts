@@ -158,4 +158,46 @@ export class StudyMaterialController {
     if (!user) throw new Error('User not found');
     return this.studyMaterialService.delete(id, user.id);
   }
+
+  @Post('bulk-upload')
+@UseInterceptors(FileInterceptor('zipFile', { limits: { fileSize: 250 * 1024 * 1024 } }))
+async bulkUpload(
+  @UploadedFile() file: Express.Multer.File,
+  @Body() body: {
+    department?: string;
+    level?: string;
+    semester?: string;
+    isPublic?: string;
+    university?: string;
+  },
+  @CurrentUser() currentUser: FirebaseUser,
+) {
+  const user = await this.prisma.user.findUnique({ where: { firebaseUid: currentUser.uid } });
+  if (!user) throw new Error('User not found');
+  if (!file) throw new Error('No zip file provided');
+
+  let universityId = user.universityId;
+  if (body.university) {
+    const uniName = Array.isArray(body.university) ? body.university[0] : body.university;
+    const uni = await this.prisma.university.findFirst({
+      where: {
+        OR: [
+          { name: { equals: uniName, mode: 'insensitive' } },
+          { shortName: { equals: uniName, mode: 'insensitive' } },
+        ],
+      },
+    });
+    if (uni) universityId = uni.id;
+  }
+  if (!universityId) throw new Error('University not found. Please set your university in your profile.');
+
+  return this.studyMaterialService.bulkUploadFromZip(file.buffer, {
+    userId: user.id,
+    universityId,
+    department: body.department,
+    level: body.level,
+    semester: body.semester,
+    isPublic: body.isPublic !== 'false',
+  });
+}
 }

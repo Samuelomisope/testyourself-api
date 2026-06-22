@@ -4,6 +4,34 @@ import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } fro
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuidv4 } from 'uuid';
 
+import * as unzipper from 'unzipper';
+import * as path from 'path';
+import pLimit from 'p-limit';
+
+const ALLOWED_EXTENSIONS = ['.pdf', '.doc', '.docx', '.ppt', '.pptx', '.txt', '.mp4', '.mov', '.avi', '.mkv', '.webm'];
+const MAX_FILES = 200;
+const MAX_FILE_SIZE = 100 * 1024 * 1024; // same cap as your single upload
+const MAX_TOTAL_UNCOMPRESSED = 1.5 * 1024 * 1024 * 1024;
+
+function mimeTypeFor(filename: string) {
+  const ext = path.extname(filename).toLowerCase();
+  const map: Record<string, string> = {
+    '.pdf': 'application/pdf',
+    '.doc': 'application/msword',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.ppt': 'application/vnd.ms-powerpoint',
+    '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    '.txt': 'text/plain',
+    '.mp4': 'video/mp4',
+    '.mov': 'video/quicktime',
+    '.avi': 'video/x-msvideo',
+    '.mkv': 'video/x-matroska',
+    '.webm': 'video/webm',
+  };
+  return map[ext] || 'application/octet-stream';
+}
+
+
 @Injectable()
 export class StudyMaterialService {
   private s3: S3Client;
@@ -57,6 +85,95 @@ export class StudyMaterialService {
     await this.s3.send(command);
     return `${process.env.R2_ENDPOINT}/${process.env.R2_BUCKET_NAME}/${key}`;
   }
+
+  async bulkUploadFromZip(
+  zipBuffer: Buffer,
+  opts: {
+    userId: string;
+    universityId: string;
+    department?: string;
+    level?: string;
+    semester?: string;
+    isPublic?: boolean;
+  },
+) {
+  const directory = await unzipper.Open.buffer(zipBuffer);
+
+  if (directory.files.length > MAX_FILES) {
+    throw new Error(`Zip has too many files (max ${MAX_FILES})`);
+  }
+
+  const grouped = new Map<string, unzipper.File[]>();
+  let totalUncompressed = 0;
+
+  for (const entry of directory.files) {
+    if (entry.type !== 'File') continue;
+
+    const parts = entry.path.split('/').filter(Boolean);
+    if (parts.some((p) => p === '..')) continue;   // zip-slip guard
+    if (parts.length < 2) continue;                 // skip loose files at zip root — need folder/file
+
+    const ext = path.extname(parts[parts.length - 1]).toLowerCase();
+    if (!ALLOWED_EXTENSIONS.includes(ext)) continue;
+
+    totalUncompressed += entry.uncompressedSize ?? 0;
+    if (totalUncompressed > MAX_TOTAL_UNCOMPRESSED) {
+      throw new Error('Zip is too large once unpacked');
+    }
+
+    const folderName = parts[0];
+    if (!grouped.has(folderName)) grouped.set(folderName, []);
+    grouped.get(folderName)!.push(entry);
+  }
+
+  const summary = {
+    courses: [] as string[],
+    uploaded: [] as { file: string; course: string }[],
+    skipped: [] as { file: string; reason: string }[],
+  };
+
+  const limit = pLimit(3); // a few uploads in parallel, gentle on R2/Wasabi and your DB pool
+
+  for (const [folderName, entries] of grouped) {
+    summary.courses.push(folderName);
+
+    await Promise.all(
+      entries.map((entry) =>
+        limit(async () => {
+          try {
+            const buffer = await entry.buffer();
+            if (buffer.length > MAX_FILE_SIZE) {
+              summary.skipped.push({ file: entry.path, reason: 'File too large (max 100MB)' });
+              return;
+            }
+
+            const fileName = path.basename(entry.path);
+            await this.create({
+              title: fileName.replace(/\.[^/.]+$/, ''),
+              fileBuffer: buffer,
+              originalName: fileName,
+              fileType: mimeTypeFor(fileName),
+              fileSize: buffer.length,
+              userId: opts.userId,
+              universityId: opts.universityId,
+              faculty: folderName,        // ← the folder name becomes the course code
+              department: opts.department,
+              level: opts.level,
+              semester: opts.semester,
+              isPublic: opts.isPublic,
+            });
+
+            summary.uploaded.push({ file: entry.path, course: folderName });
+          } catch (err) {
+            summary.skipped.push({ file: entry.path, reason: err.message });
+          }
+        }),
+      ),
+    );
+  }
+
+  return summary;
+}
 
   async deleteFromR2(fileUrl: string): Promise<void> {
     let key: string;
