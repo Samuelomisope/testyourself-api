@@ -18,6 +18,8 @@ import { AiModule } from './ai/ai.module';
 import { FeedbackModule } from './feedback/feedback.module';
 import { AnnouncementModule } from './announcement/announcement.module';
 import { FlashcardModule } from './flashcard/flashcard.module';
+import { APP_INTERCEPTOR } from '@nestjs/core';
+import { SignedUrlInterceptor } from './common/signed-url.interceptor';
 
 @Module({
   imports: [
@@ -37,7 +39,12 @@ import { FlashcardModule } from './flashcard/flashcard.module';
     FlashcardModule,
   ],
   controllers: [SearchController],
-  providers: [PrismaService], // if not already global
+  providers: [PrismaService,
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: SignedUrlInterceptor,
+    },
+  ], // if not already global
 })
 export class AppModule implements OnModuleInit {
  onModuleInit() {
@@ -49,7 +56,7 @@ export class AppModule implements OnModuleInit {
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
     });
-    console.log('✅ Firebase Admin initialized');
+    console.log('Firebase Admin initialized');
   }
 }
 }
