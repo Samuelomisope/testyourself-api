@@ -8,73 +8,332 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-// ─────────────────────────────────────────
-// UNIVERSITY
-// ─────────────────────────────────────────
 model University {
-  id          String   @id @default(uuid())
-  name        String   @unique
-  shortName   String?
-  country     String   @default("Nigeria")
-  domain      String?  // e.g. unn.edu.ng
-  logoUrl     String?
-  isVerified  Boolean  @default(false)
-  createdAt   DateTime @default(now())
-
-  users       User[]
-  studyMaterials StudyMaterial[]
-  marketplaceItems MarketplaceItem[]
-  chatRooms   ChatRoom[]
-  admins      Admin[]
+  id               String            @id @default(uuid())
+  name             String            @unique
+  shortName        String?
+  country          String            @default("Nigeria")
+  domain           String?
+  logoUrl          String?
+  isVerified       Boolean           @default(false)
+  createdAt        DateTime          @default(now())
+  admins           Admin[]
+  chatRooms        ChatRoom[]
   flashcardDecks   FlashcardDeck[]
+  marketplaceItems MarketplaceItem[]
+  studyMaterials   StudyMaterial[]
+  users            User[]
 }
 
-// ─────────────────────────────────────────
-// USER
-// ─────────────────────────────────────────
 model User {
+  id                  String               @id @default(uuid())
+  firebaseUid         String               @unique
+  displayName         String
+  email               String               @unique
+  photoURL            String?
+  emailVerified       Boolean              @default(false)
+  universityId        String?
+  faculty             String?
+  department          String?
+  bio                 String?
+  isVerifiedStudent   Boolean              @default(false)
+  verificationStatus  VerificationStatus   @default(PENDING)
+  role                Role                 @default(STUDENT)
+  isPremium           Boolean              @default(false)
+  streakCount         Int                  @default(0)
+  lastActiveAt        DateTime             @default(now())
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  isBanned            Boolean              @default(false)
+  chatSnapUsername    String?              @unique
+  chatWallpaper       String?              @default("default")
+  activityLogs        ActivityLog[]
+  buyerProfile        BuyerProfile?
+  chatRooms           ChatRoomMember[]
+  feedbacks           Feedback[]
+  flashcardDecks      FlashcardDeck[]
+  flashcardProgress   FlashcardProgress[]
+  flashcardReviewLogs FlashcardReviewLog[]
+  leaderboard         LeaderboardEntry?
+  marketplaceItems    MarketplaceItem[]
+  messagesSent        Message[]            @relation("SentMessages")
+  reactions           MessageReaction[]
+  notifications       Notification[]
+  reports             Report[]             @relation("ReportedBy")
+  reportedItems       Report[]             @relation("ReportedUser")
+  reviews             Review[]
+  sellerProfile       SellerProfile?
+  statuses            Status[]
+  statusViews         StatusView[]
+  studyMaterials      StudyMaterial[]
+  university          University?          @relation(fields: [universityId], references: [id])
+}
+
+model Admin {
+  id           String     @id @default(uuid())
+  firebaseUid  String     @unique
+  email        String     @unique
+  displayName  String
+  universityId String
+  createdAt    DateTime   @default(now())
+  university   University @relation(fields: [universityId], references: [id])
+}
+
+model StudyMaterial {
+  id             String          @id @default(uuid())
+  title          String
+  description    String?
+  fileUrl        String
+  fileType       String
+  fileSize       Int?
+  userId         String
+  universityId   String
+  faculty        String?
+  department     String?
+  isPublic       Boolean         @default(true)
+  downloadCount  Int             @default(0)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  level          String?
+  semester       String?
+  flashcardDecks FlashcardDeck[]
+  university     University      @relation(fields: [universityId], references: [id])
+  user           User            @relation(fields: [userId], references: [id])
+}
+
+model MarketplaceItem {
+  id           String        @id @default(uuid())
+  title        String
+  description  String
+  price        Float
+  category     String?
+  condition    ItemCondition @default(GOOD)
+  status       ListingStatus @default(ACTIVE)
+  userId       String
+  universityId String
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  images       String[]
+  tags         String[]
+  type         ListingType   @default(PHYSICAL)
+  university   University    @relation(fields: [universityId], references: [id])
+  user         User          @relation(fields: [userId], references: [id])
+  reviews      Review[]
+}
+
+model SellerProfile {
   id               String   @id @default(uuid())
-  firebaseUid      String   @unique  // links to Firebase Auth
-  displayName      String
-  email            String   @unique
-  photoURL         String?
-  emailVerified    Boolean  @default(false)
-  universityId     String?
-  faculty          String?
-  department       String?
+  userId           String   @unique
   bio              String?
-  isVerifiedStudent Boolean @default(false)  // university badge
-  verificationStatus VerificationStatus @default(PENDING)
-  role             Role     @default(STUDENT)
-  isPremium        Boolean  @default(false)
-  streakCount      Int      @default(0)
-  lastActiveAt     DateTime @default(now())
+  chatSnapUsername String?
+  whatsapp         String?
+  rating           Float    @default(0)
+  totalSales       Int      @default(0)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+  user             User     @relation(fields: [userId], references: [id])
+}
 
-  university       University? @relation(fields: [universityId], references: [id])
-  studyMaterials   StudyMaterial[]
-  marketplaceItems MarketplaceItem[]
-  messagesSent     Message[]       @relation("SentMessages")
-  notifications    Notification[]
-  activityLogs     ActivityLog[]
-  reports          Report[]        @relation("ReportedBy")
-  reportedItems    Report[]        @relation("ReportedUser")
-  leaderboard      LeaderboardEntry?
-  isBanned Boolean @default(false)
-  sellerProfile    SellerProfile?
-  buyerProfile     BuyerProfile?
-  reviews          Review[]
-  chatRooms        ChatRoomMember[]
-  statuses       Status[]
-  statusViews    StatusView[]
-  reactions      MessageReaction[]
-  chatSnapUsername String? @unique
-  chatWallpaper String? @default("default")
-  feedbacks    Feedback[]
-  flashcardDecks       FlashcardDeck[]
-flashcardProgress    FlashcardProgress[]
-flashcardReviewLogs  FlashcardReviewLog[]
+model BuyerProfile {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model Review {
+  id        String          @id @default(uuid())
+  rating    Int
+  comment   String?
+  userId    String
+  itemId    String
+  createdAt DateTime        @default(now())
+  item      MarketplaceItem @relation(fields: [itemId], references: [id])
+  user      User            @relation(fields: [userId], references: [id])
+}
+
+model ChatRoom {
+  id           String           @id @default(uuid())
+  name         String?
+  isGroup      Boolean          @default(false)
+  universityId String?
+  createdAt    DateTime         @default(now())
+  university   University?      @relation(fields: [universityId], references: [id])
+  members      ChatRoomMember[]
+  messages     Message[]
+}
+
+model Message {
+  id        String            @id @default(uuid())
+  text      String?
+  senderId  String
+  roomId    String
+  isRead    Boolean           @default(false)
+  createdAt DateTime          @default(now())
+  mediaType String?
+  mediaUrl  String?
+  replyToId String?
+  type      String            @default("text")
+  replyTo   Message?          @relation("MessageReplies", fields: [replyToId], references: [id])
+  replies   Message[]         @relation("MessageReplies")
+  room      ChatRoom          @relation(fields: [roomId], references: [id])
+  sender    User              @relation("SentMessages", fields: [senderId], references: [id])
+  reactions MessageReaction[]
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String
+  body      String
+  isRead    Boolean  @default(false)
+  type      String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model ActivityLog {
+  id          String   @id @default(uuid())
+  userId      String
+  type        String
+  description String
+  href        String?
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id])
+}
+
+model LeaderboardEntry {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  score     Int      @default(0)
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model Report {
+  id             String       @id @default(uuid())
+  reportedById   String
+  reportedUserId String?
+  contentType    String
+  contentId      String
+  reason         String
+  status         ReportStatus @default(PENDING)
+  createdAt      DateTime     @default(now())
+  reportedBy     User         @relation("ReportedBy", fields: [reportedById], references: [id])
+  reportedUser   User?        @relation("ReportedUser", fields: [reportedUserId], references: [id])
+}
+
+model ChatRoomMember {
+  id        String   @id @default(uuid())
+  userId    String
+  roomId    String
+  createdAt DateTime @default(now())
+  room      ChatRoom @relation(fields: [roomId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, roomId])
+}
+
+model Status {
+  id        String       @id @default(uuid())
+  userId    String
+  text      String?
+  mediaUrl  String?
+  type      String       @default("text")
+  expiresAt DateTime
+  createdAt DateTime     @default(now())
+  user      User         @relation(fields: [userId], references: [id])
+  views     StatusView[]
+}
+
+model StatusView {
+  id        String   @id @default(uuid())
+  statusId  String
+  userId    String
+  createdAt DateTime @default(now())
+  status    Status   @relation(fields: [statusId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([statusId, userId])
+}
+
+model MessageReaction {
+  id        String   @id @default(uuid())
+  messageId String
+  userId    String
+  emoji     String
+  createdAt DateTime @default(now())
+  message   Message  @relation(fields: [messageId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([messageId, userId])
+}
+
+model Feedback {
+  id        String   @id @default(uuid())
+  userId    String?
+  rating    Int
+  category  String
+  message   String
+  page      String?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id])
+}
+
+model FlashcardDeck {
+  id               String              @id @default(uuid())
+  title            String
+  description      String?
+  userId           String
+  universityId     String
+  isPublic         Boolean             @default(true)
+  sourceType       FlashcardSourceType @default(MANUAL)
+  sourceMaterialId String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  cards            Flashcard[]
+  sourceMaterial   StudyMaterial?      @relation(fields: [sourceMaterialId], references: [id])
+  university       University          @relation(fields: [universityId], references: [id])
+  user             User                @relation(fields: [userId], references: [id])
+}
+
+model Flashcard {
+  id         String               @id @default(uuid())
+  deckId     String
+  front      String
+  back       String
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @updatedAt
+  deck       FlashcardDeck        @relation(fields: [deckId], references: [id])
+  progress   FlashcardProgress[]
+  reviewLogs FlashcardReviewLog[]
+}
+
+model FlashcardProgress {
+  id             String    @id @default(uuid())
+  userId         String
+  flashcardId    String
+  easeFactor     Float     @default(2.5)
+  interval       Int       @default(0)
+  repetitions    Int       @default(0)
+  nextReviewDate DateTime  @default(now())
+  lastReviewedAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  flashcard      Flashcard @relation(fields: [flashcardId], references: [id])
+  user           User      @relation(fields: [userId], references: [id])
+
+  @@unique([userId, flashcardId])
+}
+
+model FlashcardReviewLog {
+  id          String       @id @default(uuid())
+  flashcardId String
+  userId      String
+  rating      ReviewRating
+  reviewedAt  DateTime     @default(now())
+  flashcard   Flashcard    @relation(fields: [flashcardId], references: [id])
+  user        User         @relation(fields: [userId], references: [id])
 }
 
 enum Role {
@@ -88,70 +347,6 @@ enum VerificationStatus {
   VERIFIED
   REJECTED
   MANUAL_REVIEW
-}
-
-// ─────────────────────────────────────────
-// ADMIN
-// ─────────────────────────────────────────
-model Admin {
-  id           String     @id @default(uuid())
-  firebaseUid  String     @unique
-  email        String     @unique
-  displayName  String
-  universityId String
-  createdAt    DateTime   @default(now())
-
-  university   University @relation(fields: [universityId], references: [id])
-}
-
-// ─────────────────────────────────────────
-// STUDY MATERIAL
-// ─────────────────────────────────────────
-model StudyMaterial {
-  id            String   @id @default(uuid())
-  title         String
-  description   String?
-  fileUrl       String
-  fileType      String
-  fileSize      Int?
-  userId        String
-  universityId  String
-  faculty       String?      // course code e.g. "CHM 101"
-  department    String?      // e.g. "MINING ENGINEERING"
-  level         String?      // e.g. "100" | "200" | "300" | "400" | "500"
-  semester      String?      // e.g. "first" | "second"
-  isPublic      Boolean  @default(true)
-  downloadCount Int      @default(0)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  flashcardDecks   FlashcardDeck[]
-
-  user          User       @relation(fields: [userId], references: [id])
-  university    University @relation(fields: [universityId], references: [id])
-}
-
-// ─────────────────────────────────────────
-// MARKETPLACE
-// ─────────────────────────────────────────
-model MarketplaceItem {
-  id           String          @id @default(uuid())
-  title        String
-  description  String
-  price        Float
-  images       String[]
-  category     String?
-  type         ListingType     @default(PHYSICAL)
-  condition    ItemCondition   @default(GOOD)
-  status       ListingStatus   @default(ACTIVE)
-  tags         String[]
-  userId       String
-  universityId String
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
-
-  user         User            @relation(fields: [userId], references: [id])
-  university   University      @relation(fields: [universityId], references: [id])
-  reviews      Review[]
 }
 
 enum ListingType {
@@ -173,138 +368,6 @@ enum ListingStatus {
   REMOVED
 }
 
-// ─────────────────────────────────────────
-// SELLER / BUYER PROFILES
-// ─────────────────────────────────────────
-model SellerProfile {
-  id               String   @id @default(uuid())
-  userId           String   @unique
-  bio              String?
-  chatSnapUsername String?
-  whatsapp         String?
-  rating           Float    @default(0)
-  totalSales       Int      @default(0)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-
-  user             User     @relation(fields: [userId], references: [id])
-}
-
-model BuyerProfile {
-  id        String   @id @default(uuid())
-  userId    String   @unique
-  createdAt DateTime @default(now())
-
-  user      User     @relation(fields: [userId], references: [id])
-}
-
-// ─────────────────────────────────────────
-// REVIEWS
-// ─────────────────────────────────────────
-model Review {
-  id        String          @id @default(uuid())
-  rating    Int
-  comment   String?
-  userId    String
-  itemId    String
-  createdAt DateTime        @default(now())
-
-  user      User            @relation(fields: [userId], references: [id])
-  item      MarketplaceItem @relation(fields: [itemId], references: [id])
-}
-
-// ─────────────────────────────────────────
-// CHAT
-// ─────────────────────────────────────────
-model ChatRoom {
-  id           String    @id @default(uuid())
-  name         String?
-  isGroup      Boolean   @default(false)
-  universityId String?
-  createdAt    DateTime  @default(now())
-
-  university   University? @relation(fields: [universityId], references: [id])
-  messages     Message[]
-  members      ChatRoomMember[]
-}
-
-model Message {
-  id          String   @id @default(uuid())
-  text        String?
-  mediaUrl    String?
-  mediaType   String?  // image, video, audio, file
-  type        String   @default("text") // text, image, video, audio, file
-  senderId    String
-  roomId      String
-  replyToId   String?
-  isRead      Boolean  @default(false)
-  createdAt   DateTime @default(now())
-
-  sender      User              @relation("SentMessages", fields: [senderId], references: [id])
-  room        ChatRoom          @relation(fields: [roomId], references: [id])
-  replyTo     Message?          @relation("MessageReplies", fields: [replyToId], references: [id])
-  replies     Message[]         @relation("MessageReplies")
-  reactions   MessageReaction[]
-}
-
-// ─────────────────────────────────────────
-// NOTIFICATIONS
-// ─────────────────────────────────────────
-model Notification {
-  id        String   @id @default(uuid())
-  userId    String
-  title     String
-  body      String
-  isRead    Boolean  @default(false)
-  type      String?  // "chat", "marketplace", "system", etc
-  createdAt DateTime @default(now())
-
-  user      User     @relation(fields: [userId], references: [id])
-}
-
-// ─────────────────────────────────────────
-// ACTIVITY LOG
-// ─────────────────────────────────────────
-model ActivityLog {
-  id          String   @id @default(uuid())
-  userId      String
-  type        String   // "upload", "ai", "marketplace", "chat"
-  description String
-  href        String?
-  createdAt   DateTime @default(now())
-
-  user        User     @relation(fields: [userId], references: [id])
-}
-
-// ─────────────────────────────────────────
-// LEADERBOARD
-// ─────────────────────────────────────────
-model LeaderboardEntry {
-  id        String   @id @default(uuid())
-  userId    String   @unique
-  score     Int      @default(0)
-  updatedAt DateTime @updatedAt
-
-  user      User     @relation(fields: [userId], references: [id])
-}
-
-// ─────────────────────────────────────────
-// REPORTS (moderation)
-// ─────────────────────────────────────────
-model Report {
-  id           String       @id @default(uuid())
-  reportedById String
-  reportedUserId String?
-  contentType  String       // "message", "material", "listing"
-  contentId    String
-  reason       String
-  status       ReportStatus @default(PENDING)
-  createdAt    DateTime     @default(now())
-
-  reportedBy   User         @relation("ReportedBy", fields: [reportedById], references: [id])
-  reportedUser User?        @relation("ReportedUser", fields: [reportedUserId], references: [id])
-}
-
 enum ReportStatus {
   PENDING
   REVIEWED
@@ -312,151 +375,9 @@ enum ReportStatus {
   DISMISSED
 }
 
-
-model ChatRoomMember {
-  id        String   @id @default(uuid())
-  userId    String
-  roomId    String
-  createdAt DateTime @default(now())
-
-  user      User     @relation(fields: [userId], references: [id])
-  room      ChatRoom @relation(fields: [roomId], references: [id])
-
-  @@unique([userId, roomId])
-}
-
-// ─────────────────────────────────────────
-// STATUS
-// ─────────────────────────────────────────
-model Status {
-  id        String   @id @default(uuid())
-  userId    String
-  text      String?
-  mediaUrl  String?
-  type      String   @default("text") // text, image
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-
-  user      User     @relation(fields: [userId], references: [id])
-  views     StatusView[]
-}
-
-model StatusView {
-  id        String   @id @default(uuid())
-  statusId  String
-  userId    String
-  createdAt DateTime @default(now())
-
-  status    Status   @relation(fields: [statusId], references: [id])
-  user      User     @relation(fields: [userId], references: [id])
-
-  @@unique([statusId, userId])
-}
-
-// ─────────────────────────────────────────
-// MESSAGE REACTION
-// ─────────────────────────────────────────
-model MessageReaction {
-  id        String   @id @default(uuid())
-  messageId String
-  userId    String
-  emoji     String
-  createdAt DateTime @default(now())
-
-  message   Message  @relation(fields: [messageId], references: [id])
-  user      User     @relation(fields: [userId], references: [id])
-
-  @@unique([messageId, userId])
-}
-
-// ─────────────────────────────────────────
-// FEEDBACK
-// ─────────────────────────────────────────
-model Feedback {
-  id        String   @id @default(uuid())
-  userId    String?
-  rating    Int
-  category  String   // "Bug", "Suggestion", "General"
-  message   String
-  page      String?  // which page they were on
-  createdAt DateTime @default(now())
-
-  user      User?    @relation(fields: [userId], references: [id])
-}
-
-// ─────────────────────────────────────────
-// FLASHCARDS
-// ─────────────────────────────────────────
-model FlashcardDeck {
-  id               String     @id @default(uuid())
-  title            String
-  description      String?
-  userId           String                       // creator/owner
-  universityId     String
-  isPublic         Boolean    @default(true)
-  sourceType       FlashcardSourceType @default(MANUAL)
-  sourceMaterialId String?
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
-
-  user             User           @relation(fields: [userId], references: [id])
-  university       University     @relation(fields: [universityId], references: [id])
-  sourceMaterial   StudyMaterial? @relation(fields: [sourceMaterialId], references: [id])
-  cards            Flashcard[]
-}
-
 enum FlashcardSourceType {
   MANUAL
   AI_GENERATED
-}
-
-// Flashcard holds only the CONTENT (front/back) — no per-user progress fields,
-// since the same card can be reviewed independently by many users on shared decks.
-model Flashcard {
-  id        String   @id @default(uuid())
-  deckId    String
-  front     String
-  back      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  deck      FlashcardDeck         @relation(fields: [deckId], references: [id])
-  progress  FlashcardProgress[]
-  reviewLogs FlashcardReviewLog[]
-}
-
-// One row per (user, flashcard) pair — this is where SM-2 state actually lives.
-// Lets two different users studying the same shared deck each have independent
-// scheduling without overwriting each other.
-model FlashcardProgress {
-  id             String   @id @default(uuid())
-  userId         String
-  flashcardId    String
-
-  easeFactor     Float    @default(2.5)
-  interval       Int      @default(0)      // days until next review
-  repetitions    Int      @default(0)      // consecutive correct reviews
-  nextReviewDate DateTime @default(now())
-  lastReviewedAt DateTime?
-
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  user           User      @relation(fields: [userId], references: [id])
-  flashcard      Flashcard @relation(fields: [flashcardId], references: [id])
-
-  @@unique([userId, flashcardId])
-}
-
-model FlashcardReviewLog {
-  id          String       @id @default(uuid())
-  flashcardId String
-  userId      String
-  rating      ReviewRating
-  reviewedAt  DateTime     @default(now())
-
-  flashcard   Flashcard @relation(fields: [flashcardId], references: [id])
-  user        User      @relation(fields: [userId], references: [id])
 }
 
 enum ReviewRating {
