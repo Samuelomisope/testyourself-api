@@ -2,13 +2,13 @@ import {
   Controller, Get, Post, Body, Param, Query, UseGuards
 } from '@nestjs/common';
 import { ChatService } from './chat.service';
-import { FirebaseAuthGuard } from '../auth/firebase-auth.guard';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import type { FirebaseUser } from '../common/decorators/current-user.decorator';
+import type { AuthUser } from '../common/decorators/current-user.decorator';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Controller('chat')
-@UseGuards(FirebaseAuthGuard)
+@UseGuards(JwtAuthGuard)
 export class ChatController {
   constructor(
     private readonly chatService: ChatService,
@@ -18,21 +18,21 @@ export class ChatController {
   // ── Rooms ─────────────────────────────────────────────────────────
 
   @Get('rooms')
-  getMyRooms(@CurrentUser() user: FirebaseUser) {
-    return this.chatService.getMyRooms(user.uid);
+  getMyRooms(@CurrentUser() user: AuthUser) {
+    return this.chatService.getMyRooms(user.sub);
   }
 
   @Post('rooms/dm')
   getOrCreateDM(
-    @CurrentUser() user: FirebaseUser,
+    @CurrentUser() user: AuthUser,
     @Body('targetUserId') targetUserId: string,
   ) {
-    return this.chatService.getOrCreateDM(user.uid, targetUserId);
+    return this.chatService.getOrCreateDM(user.sub, targetUserId);
   }
 
   @Post('rooms/group')
   getOrCreateGroup(
-    @CurrentUser() user: FirebaseUser,
+    @CurrentUser() user: AuthUser,
     @Body('universityId') universityId: string,
   ) {
     return this.chatService.getOrCreateGroupRoom(universityId);
@@ -41,18 +41,18 @@ export class ChatController {
   // NEW: Create a custom named group with selected members
   @Post('rooms/create-group')
   createCustomGroup(
-    @CurrentUser() user: FirebaseUser,
+    @CurrentUser() user: AuthUser,
     @Body() body: { name: string; memberIds: string[] },
   ) {
-    return this.chatService.createCustomGroup(user.uid, body.name, body.memberIds);
+    return this.chatService.createCustomGroup(user.sub, body.name, body.memberIds);
   }
 
   @Post('rooms/:roomId/join')
   joinRoom(
-    @CurrentUser() user: FirebaseUser,
+    @CurrentUser() user: AuthUser,
     @Param('roomId') roomId: string,
   ) {
-    return this.chatService.joinGroupRoom(user.uid, roomId);
+    return this.chatService.joinGroupRoom(user.sub, roomId);
   }
 
   @Get('rooms/:roomId')
@@ -62,61 +62,61 @@ export class ChatController {
 
   @Get('rooms/:roomId/messages')
   getMessages(
-    @CurrentUser() user: FirebaseUser,
+    @CurrentUser() user: AuthUser,
     @Param('roomId') roomId: string,
     @Query('cursor') cursor: string,
   ) {
-    return this.chatService.getMessages(roomId, user.uid, cursor);
+    return this.chatService.getMessages(roomId, user.sub, cursor);
   }
 
   @Post('rooms/:roomId/read')
   markAsRead(
-    @CurrentUser() user: FirebaseUser,
+    @CurrentUser() user: AuthUser,
     @Param('roomId') roomId: string,
   ) {
-    return this.chatService.markAsRead(roomId, user.uid);
+    return this.chatService.markAsRead(roomId, user.sub);
   }
 
   // NEW: Search messages inside a room
   @Get('rooms/:roomId/search')
   searchMessages(
-    @CurrentUser() user: FirebaseUser,
+    @CurrentUser() user: AuthUser,
     @Param('roomId') roomId: string,
     @Query('q') q: string,
   ) {
-    return this.chatService.searchMessages(roomId, user.uid, q);
+    return this.chatService.searchMessages(roomId, user.sub, q);
   }
 
   // NEW: Get all media (images, videos, audio, files) in a room
   @Get('rooms/:roomId/media')
   getRoomMedia(
-    @CurrentUser() user: FirebaseUser,
+    @CurrentUser() user: AuthUser,
     @Param('roomId') roomId: string,
   ) {
-    return this.chatService.getRoomMedia(roomId, user.uid);
+    return this.chatService.getRoomMedia(roomId, user.sub);
   }
 
   // ── Messages ──────────────────────────────────────────────────────
 
   @Post('messages/:messageId/react')
   reactToMessage(
-    @CurrentUser() user: FirebaseUser,
+    @CurrentUser() user: AuthUser,
     @Param('messageId') messageId: string,
     @Body('emoji') emoji: string,
   ) {
-    return this.chatService.reactToMessage(user.uid, messageId, emoji);
+    return this.chatService.reactToMessage(user.sub, messageId, emoji);
   }
 
   // ── Status ────────────────────────────────────────────────────────
 
   @Get('status')
-  getStatuses(@CurrentUser() user: FirebaseUser) {
-    return this.chatService.getStatuses(user.uid);
+  getStatuses(@CurrentUser() user: AuthUser) {
+    return this.chatService.getStatuses(user.sub);
   }
 
   @Post('status')
   createStatus(
-    @CurrentUser() user: FirebaseUser,
+    @CurrentUser() user: AuthUser,
     @Body() body: {
       text?: string;
       mediaUrl?: string;
@@ -125,15 +125,15 @@ export class ChatController {
       bgColor?: string;
     },
   ) {
-    return this.chatService.createStatus(user.uid, body);
+    return this.chatService.createStatus(user.sub, body);
   }
 
   @Post('status/:statusId/view')
   viewStatus(
-    @CurrentUser() user: FirebaseUser,
+    @CurrentUser() user: AuthUser,
     @Param('statusId') statusId: string,
   ) {
-    return this.chatService.viewStatus(user.uid, statusId);
+    return this.chatService.viewStatus(user.sub, statusId);
   }
 
   // ── Users ─────────────────────────────────────────────────────────

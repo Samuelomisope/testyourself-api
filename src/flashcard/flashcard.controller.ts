@@ -2,14 +2,14 @@ import {
   Controller, Get, Post, Delete, Param, Body, UseGuards,
 } from '@nestjs/common';
 import { FlashcardService } from './flashcard.service';
-import { FirebaseAuthGuard } from '../auth/firebase-auth.guard';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import type { FirebaseUser } from '../common/decorators/current-user.decorator';
+import type { AuthUser } from '../common/decorators/current-user.decorator';
 import { PrismaService } from '../prisma/prisma.service';
 import { ReviewRating } from './sm2';
 
 @Controller('flashcards')
-@UseGuards(FirebaseAuthGuard)
+@UseGuards(JwtAuthGuard)
 export class FlashcardController {
   constructor(
     private readonly flashcardService: FlashcardService,
@@ -24,9 +24,9 @@ export class FlashcardController {
       isPublic?: boolean;
       cards: { front: string; back: string }[];
     },
-    @CurrentUser() currentUser: FirebaseUser,
+    @CurrentUser() currentUser: AuthUser,
   ) {
-    const user = await this.prisma.user.findUnique({ where: { firebaseUid: currentUser.uid } });
+    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
     if (!user) throw new Error('User not found');
     if (!user.universityId) throw new Error('University not set. Please set your university in your profile.');
 
@@ -41,15 +41,15 @@ export class FlashcardController {
   }
 
   @Get('decks')
-  async findAll(@CurrentUser() currentUser: FirebaseUser) {
-    const user = await this.prisma.user.findUnique({ where: { firebaseUid: currentUser.uid } });
+  async findAll(@CurrentUser() currentUser: AuthUser) {
+    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
     if (!user || !user.universityId) return [];
     return this.flashcardService.findAll(user.id, user.universityId);
   }
 
   @Get('decks/my')
-  async findMine(@CurrentUser() currentUser: FirebaseUser) {
-    const user = await this.prisma.user.findUnique({ where: { firebaseUid: currentUser.uid } });
+  async findMine(@CurrentUser() currentUser: AuthUser) {
+    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
     if (!user) return [];
     return this.flashcardService.findMine(user.id);
   }
@@ -63,16 +63,16 @@ export class FlashcardController {
   async addCards(
     @Param('id') id: string,
     @Body() body: { cards: { front: string; back: string }[] },
-    @CurrentUser() currentUser: FirebaseUser,
+    @CurrentUser() currentUser: AuthUser,
   ) {
-    const user = await this.prisma.user.findUnique({ where: { firebaseUid: currentUser.uid } });
+    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
     if (!user) throw new Error('User not found');
     return this.flashcardService.addCards(id, user.id, body.cards);
   }
 
   @Delete('decks/:id')
-  async deleteDeck(@Param('id') id: string, @CurrentUser() currentUser: FirebaseUser) {
-    const user = await this.prisma.user.findUnique({ where: { firebaseUid: currentUser.uid } });
+  async deleteDeck(@Param('id') id: string, @CurrentUser() currentUser: AuthUser) {
+    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
     if (!user) throw new Error('User not found');
     return this.flashcardService.deleteDeck(id, user.id);
   }
@@ -80,8 +80,8 @@ export class FlashcardController {
   // ── REVIEW (SM-2) ─────────────────────────────────────
 
   @Get('decks/:id/due')
-  async getDueCards(@Param('id') id: string, @CurrentUser() currentUser: FirebaseUser) {
-    const user = await this.prisma.user.findUnique({ where: { firebaseUid: currentUser.uid } });
+  async getDueCards(@Param('id') id: string, @CurrentUser() currentUser: AuthUser) {
+    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
     if (!user) return [];
     return this.flashcardService.getDueCards(id, user.id);
   }
@@ -90,9 +90,9 @@ export class FlashcardController {
   async reviewCard(
     @Param('id') id: string,
     @Body() body: { rating: ReviewRating },
-    @CurrentUser() currentUser: FirebaseUser,
+    @CurrentUser() currentUser: AuthUser,
   ) {
-    const user = await this.prisma.user.findUnique({ where: { firebaseUid: currentUser.uid } });
+    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
     if (!user) throw new Error('User not found');
     return this.flashcardService.reviewCard(id, user.id, body.rating);
   }

@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Patch, Param, Body, UseGuards } from '@nestjs/common';
 import { UniversitiesService } from './universities.service';
-import { FirebaseAuthGuard } from '../auth/firebase-auth.guard';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller('universities')
 export class UniversitiesController {
@@ -20,14 +20,14 @@ export class UniversitiesController {
 
   // Protected — get university stats
   @Get(':id/stats')
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(JwtAuthGuard)
   getStats(@Param('id') id: string) {
     return this.universitiesService.getStats(id);
   }
 
   // Protected — create university
   @Post()
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(JwtAuthGuard)
   create(@Body() body: {
     name: string;
     shortName?: string;
@@ -40,7 +40,7 @@ export class UniversitiesController {
 
   // Protected — update university
   @Patch(':id')
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(JwtAuthGuard)
   update(@Param('id') id: string, @Body() body: {
     name?: string;
     shortName?: string;
@@ -53,7 +53,7 @@ export class UniversitiesController {
 
   // Protected — seed Nigerian universities
   @Post('seed/nigeria')
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(JwtAuthGuard)
   seed(@Body() body: { universities: string[] }) {
     return this.universitiesService.seedNigerianUniversities(body.universities);
   }

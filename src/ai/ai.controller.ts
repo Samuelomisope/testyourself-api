@@ -1,12 +1,12 @@
 import { Controller, Post, Body, UseGuards, UseInterceptors, UploadedFile,  } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AiService } from './ai.service';
-import { FirebaseAuthGuard } from '../auth/firebase-auth.guard';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import type { FirebaseUser } from '../common/decorators/current-user.decorator';
+import type { AuthUser } from '../common/decorators/current-user.decorator';
 
 @Controller('ai')
-@UseGuards(FirebaseAuthGuard)
+@UseGuards(JwtAuthGuard)
 export class AiController {
   constructor(private readonly aiService: AiService) {}
 
@@ -15,7 +15,7 @@ export class AiController {
   async generateQuiz(
     @Body() body: { text: string; count?: number; difficulty?: string },
     @UploadedFile() file: Express.Multer.File,
-    @CurrentUser() _user: FirebaseUser,
+    @CurrentUser() _user: AuthUser,
   ) {
     const fileData = file ? file.buffer.toString('base64') : undefined;
     const fileMimeType = file ? file.mimetype : undefined;
@@ -27,7 +27,7 @@ export class AiController {
   async askQuestion(
     @Body() body: { question: string },
     @UploadedFile() file: Express.Multer.File,
-    @CurrentUser() _user: FirebaseUser,
+    @CurrentUser() _user: AuthUser,
   ) {
     const fileData = file ? file.buffer.toString('base64') : undefined;
     const fileMimeType = file ? file.mimetype : undefined;
@@ -39,7 +39,7 @@ export class AiController {
   async summarize(
     @Body() body: { text: string; style?: string },
     @UploadedFile() file: Express.Multer.File,
-    @CurrentUser() _user: FirebaseUser,
+    @CurrentUser() _user: AuthUser,
   ) {
     const fileData = file ? file.buffer.toString('base64') : undefined;
     const fileMimeType = file ? file.mimetype : undefined;

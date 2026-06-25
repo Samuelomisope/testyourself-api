@@ -1,7 +1,7 @@
 import { Body, Controller, Post, UseGuards } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
-import { FirebaseAuthGuard } from '../auth/firebase-auth.guard';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AdminGuard } from '../auth/admin.guard';
 
 @Controller('admin')
@@ -12,7 +12,7 @@ export class AnnouncementController {
   ) {}
 
   @Post('broadcast')
-  @UseGuards(FirebaseAuthGuard, AdminGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
   async broadcast(@Body() body: { title: string; description: string }) {
     const users = await this.prisma.user.findMany({ select: { email: true } });
 
@@ -25,7 +25,7 @@ export class AnnouncementController {
   }
 
   @Post('broadcast/single')
-  @UseGuards(FirebaseAuthGuard, AdminGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
   async broadcastSingle(@Body() body: { email: string; title: string; description: string }) {
     const user = await this.prisma.user.findUnique({ where: { email: body.email } });
     if (!user) throw new Error(`No user found with email ${body.email}`);

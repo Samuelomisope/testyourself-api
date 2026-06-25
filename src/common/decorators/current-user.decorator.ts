@@ -1,15 +1,12 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 
-export interface FirebaseUser {
-  uid: string;
+export interface AuthUser {
+  sub: string;   // Postgres User.id
   email: string;
-  emailVerified: boolean;
-  name?: string;
-  picture?: string;
 }
 
 export const CurrentUser = createParamDecorator(
-  (data: unknown, ctx: ExecutionContext): FirebaseUser => {
+  (data: unknown, ctx: ExecutionContext): AuthUser => {
     const request = ctx.switchToHttp().getRequest();
     return request.user;
   },

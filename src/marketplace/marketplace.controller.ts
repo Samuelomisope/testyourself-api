@@ -3,24 +3,24 @@ import {
   Body, Param, Query, UseGuards
 } from '@nestjs/common';
 import { MarketplaceService } from './marketplace.service';
-import { FirebaseAuthGuard } from '../auth/firebase-auth.guard';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import type { FirebaseUser } from '../common/decorators/current-user.decorator';
+import type { AuthUser } from '../common/decorators/current-user.decorator';
 
 @Controller('marketplace')
-@UseGuards(FirebaseAuthGuard)
+@UseGuards(JwtAuthGuard)
 export class MarketplaceController {
   constructor(private readonly marketplaceService: MarketplaceService) {}
 
   // ── Onboarding ───────────────────────────────────────────────────
   @Post('seller/onboard')
-  createSellerProfile(@CurrentUser() user: FirebaseUser, @Body() body: { bio?: string; chatSnapUsername?: string; whatsapp?: string }) {
-    return this.marketplaceService.createSellerProfile(user.uid, body);
+  createSellerProfile(@CurrentUser() user: AuthUser, @Body() body: { bio?: string; chatSnapUsername?: string; whatsapp?: string }) {
+    return this.marketplaceService.createSellerProfile(user.sub, body);
   }
 
   @Post('buyer/onboard')
-  createBuyerProfile(@CurrentUser() user: FirebaseUser) {
-    return this.marketplaceService.createBuyerProfile(user.uid);
+  createBuyerProfile(@CurrentUser() user: AuthUser) {
+    return this.marketplaceService.createBuyerProfile(user.sub);
   }
 
   // ── Listings ─────────────────────────────────────────────────────
@@ -42,8 +42,8 @@ export class MarketplaceController {
   }
 
   @Get('my')
-  getMyListings(@CurrentUser() user: FirebaseUser) {
-    return this.marketplaceService.getMyListings(user.uid);
+  getMyListings(@CurrentUser() user: AuthUser) {
+    return this.marketplaceService.getMyListings(user.sub);
   }
 
   @Get('seller/:userId')
@@ -57,22 +57,22 @@ export class MarketplaceController {
   }
 
   @Post()
-createListing(@CurrentUser() user: FirebaseUser, @Body() body: any) {
-  return this.marketplaceService.createListing(user.uid, body);
+createListing(@CurrentUser() user: AuthUser, @Body() body: any) {
+  return this.marketplaceService.createListing(user.sub, body);
 }
   @Patch(':id')
-  updateListing(@CurrentUser() user: FirebaseUser, @Param('id') id: string, @Body() body: any) {
-    return this.marketplaceService.updateListing(id, user.uid, body);
+  updateListing(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: any) {
+    return this.marketplaceService.updateListing(id, user.sub, body);
   }
 
   @Delete(':id')
-  deleteListing(@CurrentUser() user: FirebaseUser, @Param('id') id: string) {
-    return this.marketplaceService.deleteListing(id, user.uid);
+  deleteListing(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.marketplaceService.deleteListing(id, user.sub);
   }
 
   // ── Reviews ──────────────────────────────────────────────────────
   @Post(':id/reviews')
-  addReview(@CurrentUser() user: FirebaseUser, @Param('id') itemId: string, @Body() body: { rating: number; comment?: string }) {
-    return this.marketplaceService.addReview(user.uid, itemId, body);
+  addReview(@CurrentUser() user: AuthUser, @Param('id') itemId: string, @Body() body: { rating: number; comment?: string }) {
+    return this.marketplaceService.addReview(user.sub, itemId, body);
   }
 }

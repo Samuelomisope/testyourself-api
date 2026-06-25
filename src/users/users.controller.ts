@@ -1,18 +1,18 @@
 import { UsersService } from './users.service';
-import { FirebaseAuthGuard } from '../auth/firebase-auth.guard';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import type { FirebaseUser } from '../common/decorators/current-user.decorator';
+import type { AuthUser } from '../common/decorators/current-user.decorator';
 import { Controller, Get, Patch, Body, UseGuards, Query, Post } from '@nestjs/common';
 
 @Controller('users')
-@UseGuards(FirebaseAuthGuard)
+@UseGuards(JwtAuthGuard)
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Get('me')
-  async getMe(@CurrentUser() user: FirebaseUser) {
-    return this.usersService.findOrCreate(user);
-  }
+ async getMe(@CurrentUser() user: AuthUser) {
+  return this.usersService.findById(user.sub);
+}
 
   @Get('search')
   async searchUsers(@Query('q') q: string) {
@@ -20,20 +20,20 @@ export class UsersController {
   }
 
   @Get('me/stats')
-  async getMyStats(@CurrentUser() user: FirebaseUser) {
-    return this.usersService.getUserStats(user.uid);
+  async getMyStats(@CurrentUser() user: AuthUser) {
+    return this.usersService.getUserStats(user.sub);
   }
 
  @Get('me/activity')
 async getMyActivity(
-  @CurrentUser() user: FirebaseUser,
+  @CurrentUser() user: AuthUser,
   @Query('type') type?: string,
 ) {
-  return this.usersService.getRecentActivity(user.uid, type);
+  return this.usersService.getRecentActivity(user.sub, type);
 }
   @Patch('me')
   async updateMe(
-    @CurrentUser() user: FirebaseUser,
+    @CurrentUser() user: AuthUser,
     @Body() body: {
       displayName?: string;
       photoURL?: string;
@@ -48,14 +48,14 @@ async getMyActivity(
     if (body.chatWallpaper && typeof body.chatWallpaper === 'object') {
       body.chatWallpaper = body.chatWallpaper.id;
     }
-    return this.usersService.updateProfile(user.uid, body);
+    return this.usersService.updateProfile(user.sub, body);
   }
 
   @Post('me/activity')
 async logActivity(
-  @CurrentUser() user: FirebaseUser,
+  @CurrentUser() user: AuthUser,
   @Body() body: { type: string; description: string; href?: string },
 ) {
-  return this.usersService.logActivity(user.uid, body.type, body.description, body.href);
+  return this.usersService.logActivity(user.sub, body.type, body.description, body.href);
 }
 }

@@ -6,12 +6,11 @@ export class ChatService {
   constructor(private prisma: PrismaService) {}
 
   // ── Helper ────────────────────────────────────────────────────────
-  private async getDbUser(firebaseUid: string) {
-    const user = await this.prisma.user.findUnique({ where: { firebaseUid } });
-    if (!user) throw new NotFoundException('User not found');
-    return user;
-  }
-
+  private async getDbUser(userId: string) {
+  const user = await this.prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw new NotFoundException('User not found');
+  return user;
+}
   // ── Direct Message Room ───────────────────────────────────────────
   async getOrCreateDM(firebaseUid: string, targetUserId: string) {
     const currentUser = await this.getDbUser(firebaseUid);

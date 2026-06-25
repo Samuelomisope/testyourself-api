@@ -27,7 +27,7 @@ model University {
 
 model User {
   id                  String               @id @default(uuid())
-  firebaseUid         String               @unique
+  firebaseUid         String?               @unique
   displayName         String
   email               String               @unique
   photoURL            String?
@@ -67,6 +67,7 @@ model User {
   statusViews         StatusView[]
   studyMaterials      StudyMaterial[]
   university          University?          @relation(fields: [universityId], references: [id])
+  googleId    String? @unique
 }
 
 model Admin {

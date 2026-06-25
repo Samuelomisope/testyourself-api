@@ -4,13 +4,13 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { StudyMaterialService } from './study-material.service';
-import { FirebaseAuthGuard } from '../auth/firebase-auth.guard';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import type { FirebaseUser } from '../common/decorators/current-user.decorator';
+import type { AuthUser } from '../common/decorators/current-user.decorator';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Controller('study-material')
-@UseGuards(FirebaseAuthGuard)
+@UseGuards(JwtAuthGuard)
 export class StudyMaterialController {
   constructor(
     private readonly studyMaterialService: StudyMaterialService,
@@ -31,9 +31,9 @@ export class StudyMaterialController {
       isPublic?: string;
       university?: string;
     },
-    @CurrentUser() currentUser: FirebaseUser,
+    @CurrentUser() currentUser: AuthUser,
   ) {
-    const user = await this.prisma.user.findUnique({ where: { firebaseUid: currentUser.uid } });
+    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
     if (!user) throw new Error('User not found');
     if (!file) throw new Error('No file provided');
     if (file.size > 100 * 1024 * 1024) throw new Error('File too large. Maximum size is 100MB.');
@@ -73,14 +73,14 @@ export class StudyMaterialController {
 
   @Get()
   async findAll(
-    @CurrentUser() currentUser: FirebaseUser,
+    @CurrentUser() currentUser: AuthUser,
     @Query('faculty') faculty?: string,
     @Query('department') department?: string,
     @Query('level') level?: string,
     @Query('semester') semester?: string,
     @Query('search') search?: string,
   ) {
-    const user = await this.prisma.user.findUnique({ where: { firebaseUid: currentUser.uid } });
+    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
     if (!user) return [];
 
     const materials = await this.prisma.studyMaterial.findMany({
@@ -113,8 +113,8 @@ export class StudyMaterialController {
   }
 
   @Get('my')
-  async findMine(@CurrentUser() currentUser: FirebaseUser) {
-    const user = await this.prisma.user.findUnique({ where: { firebaseUid: currentUser.uid } });
+  async findMine(@CurrentUser() currentUser: AuthUser) {
+    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
     if (!user) return [];
     return this.studyMaterialService.findByUser(user.id);
   }
@@ -137,9 +137,9 @@ export class StudyMaterialController {
       semester?: string;
       isPublic?: string;
     },
-    @CurrentUser() currentUser: FirebaseUser,
+    @CurrentUser() currentUser: AuthUser,
   ) {
-    const user = await this.prisma.user.findUnique({ where: { firebaseUid: currentUser.uid } });
+    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
     if (!user) throw new Error('User not found');
     return this.studyMaterialService.update(id, user.id, {
       title: body.title,
@@ -153,8 +153,8 @@ export class StudyMaterialController {
   }
 
   @Delete(':id')
-  async delete(@Param('id') id: string, @CurrentUser() currentUser: FirebaseUser) {
-    const user = await this.prisma.user.findUnique({ where: { firebaseUid: currentUser.uid } });
+  async delete(@Param('id') id: string, @CurrentUser() currentUser: AuthUser) {
+    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
     if (!user) throw new Error('User not found');
     return this.studyMaterialService.delete(id, user.id);
   }
@@ -170,9 +170,9 @@ async bulkUpload(
     isPublic?: string;
     university?: string;
   },
-  @CurrentUser() currentUser: FirebaseUser,
+  @CurrentUser() currentUser: AuthUser,
 ) {
-  const user = await this.prisma.user.findUnique({ where: { firebaseUid: currentUser.uid } });
+  const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
   if (!user) throw new Error('User not found');
   if (!file) throw new Error('No zip file provided');
 

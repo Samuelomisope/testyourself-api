@@ -1,4 +1,4 @@
-ï»¿import { Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuidv4 } from 'uuid';
@@ -25,13 +25,13 @@ export class UploadService {
       ContentType: file.mimetype,
     }));
 
-    // Store a stable, UNSIGNED reference. Signed URLs expire â€” we sign
+    // Store a stable, UNSIGNED reference. Signed URLs expire — we sign
     // fresh on every read instead, via getSignedUrlForStoredRef.
     return `${process.env.R2_ENDPOINT}/${process.env.R2_BUCKET_NAME}/${key}`;
   }
 
   extractKey(storedUrl: string): string {
-    // Strip query string first â€” old expired signed URLs still have the
+    // Strip query string first — old expired signed URLs still have the
     // correct key in the path, just with stale ?X-Amz-... params attached.
     const clean = storedUrl.split('?')[0];
 

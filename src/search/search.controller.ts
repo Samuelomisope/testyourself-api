@@ -1,23 +1,23 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { FirebaseAuthGuard } from '../auth/firebase-auth.guard';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import type { FirebaseUser } from '../common/decorators/current-user.decorator';
+import type { AuthUser } from '../common/decorators/current-user.decorator';
 
 @Controller('search')
-@UseGuards(FirebaseAuthGuard)
+@UseGuards(JwtAuthGuard)
 export class SearchController {
   constructor(private readonly prisma: PrismaService) {}
 
   @Get()
   async globalSearch(
     @Query('q') q: string,
-    @CurrentUser() currentUser: FirebaseUser,
+    @CurrentUser() currentUser: AuthUser,
   ) {
     if (!q || q.trim().length < 2) return { materials: [], users: [], products: [] };
 
     const user = await this.prisma.user.findUnique({
-      where: { firebaseUid: currentUser.uid },
+      where: { id: currentUser.sub },
     });
 
     const [materials, users, marketplace] = await Promise.all([

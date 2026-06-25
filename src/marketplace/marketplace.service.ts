@@ -6,13 +6,13 @@ export class MarketplaceService {
   constructor(private prisma: PrismaService) {}
 
   // ── Helper: get DB user from Firebase UID ────────────────────────
-  private async getDbUser(firebaseUid: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { firebaseUid },
-    });
-    if (!user) throw new NotFoundException('User not found');
-    return user;
-  }
+ private async getDbUser(userId: string) {
+  const user = await this.prisma.user.findUnique({
+    where: { id: userId },
+  });
+  if (!user) throw new NotFoundException('User not found');
+  return user;
+}
 
   // ── Seller/Buyer Onboarding ──────────────────────────────────────
   async createSellerProfile(firebaseUid: string, data: { bio?: string; chatSnapUsername?: string; whatsapp?: string }) {
