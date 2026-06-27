@@ -47,27 +47,28 @@ export class StudyMaterialService {
       forcePathStyle: true,
     });
   }
-
-  async getSignedFileUrl(fileUrl: string): Promise<string> {
-    let key: string;
-    if (fileUrl.includes(`/${process.env.R2_BUCKET_NAME}/`)) {
-      key = fileUrl.split(`/${process.env.R2_BUCKET_NAME}/`)[1];
-    } else if (fileUrl.includes('.r2.cloudflarestorage.com/')) {
-      key = fileUrl.split('.r2.cloudflarestorage.com/')[1];
-   } else if (fileUrl.includes('.wasabisys.com/')) {
-  const afterHost = fileUrl.split('.wasabisys.com/')[1];
-  const segments = afterHost.split('/');
-  key = segments[0] === 'testyourself' ? segments.slice(1).join('/') : afterHost;
-} else {
-      key = fileUrl;
-    }
-    if (!key) throw new Error(`Could not extract key from fileUrl: ${fileUrl}`);
-    const command = new GetObjectCommand({
-      Bucket: process.env.R2_BUCKET_NAME,
-      Key: key,
-    });
-    return getSignedUrl(this.s3, command, { expiresIn: 3600 });
+async getSignedFileUrl(fileUrl: string): Promise<string> {
+  let key: string;
+  if (fileUrl.includes(`/${process.env.R2_BUCKET_NAME}/`)) {
+    key = fileUrl.split(`/${process.env.R2_BUCKET_NAME}/`)[1];
+  } else if (fileUrl.includes('.r2.cloudflarestorage.com/')) {
+    key = fileUrl.split('.r2.cloudflarestorage.com/')[1];
+  } else if (fileUrl.includes('.r2.dev/')) {
+    key = fileUrl.split('.r2.dev/')[1];
+  } else if (fileUrl.includes('.wasabisys.com/')) {
+    const afterHost = fileUrl.split('.wasabisys.com/')[1];
+    const segments = afterHost.split('/');
+    key = segments[0] === 'testyourself' ? segments.slice(1).join('/') : afterHost;
+  } else {
+    key = fileUrl;
   }
+  if (!key) throw new Error(`Could not extract key from fileUrl: ${fileUrl}`);
+  const command = new GetObjectCommand({
+    Bucket: process.env.R2_BUCKET_NAME,
+    Key: key,
+  });
+  return getSignedUrl(this.s3, command, { expiresIn: 3600 });
+}
 
   async withSignedUrl(material: any) {
     const signedUrl = await this.getSignedFileUrl(material.fileUrl);
