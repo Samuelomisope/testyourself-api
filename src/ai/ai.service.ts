@@ -1,15 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import Groq from 'groq-sdk';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import Anthropic from '@anthropic-ai/sdk';
 
 @Injectable()
 export class AiService {
   private groq: Groq;
-  private gemini: GoogleGenerativeAI;
+  private anthropic: Anthropic;
 
   constructor() {
     this.groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-    this.gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+    this.anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   }
 
   // ─── Groq: text + image ───────────────────────────────────────────
@@ -42,36 +42,49 @@ export class AiService {
     return response.choices[0].message.content ?? '';
   }
 
-  // ─── Gemini: PDF + video ──────────────────────────────────────────
- // ─── Gemini: PDF + video ──────────────────────────────────────────
-private async askGemini(
-  system: string,
-  prompt: string,
-  fileData: string,
-  fileMimeType: string,
-): Promise<string> {
-  const models = ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-flash', 'gemini-1.5-pro'];
+  // ─── Claude: PDF + video ──────────────────────────────────────────
+  private async askClaude(
+    system: string,
+    prompt: string,
+    fileData: string,
+    fileMimeType: string,
+  ): Promise<string> {
+    const isPdf = fileMimeType === 'application/pdf';
 
-  for (const modelName of models) {
-    try {
-      const model = this.gemini.getGenerativeModel({
-        model: modelName,
-        systemInstruction: system,
-      });
-      const result = await model.generateContent([
-        { inlineData: { data: fileData, mimeType: fileMimeType } },
-        prompt,
-      ]);
-      return result.response.text();
-    } catch (err: any) {
-      if (err?.status === 429) continue;
-      throw err;
-    }
+    const contentBlock: any = isPdf
+      ? {
+          type: 'document',
+          source: {
+            type: 'base64',
+            media_type: fileMimeType,
+            data: fileData,
+          },
+        }
+      : {
+          type: 'text',
+          text: `[File of type ${fileMimeType} was provided but cannot be read directly. Please answer based on the prompt only.]`,
+        };
+
+    const response = await this.anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1000,
+      system,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            contentBlock,
+            { type: 'text', text: prompt },
+          ],
+        },
+      ],
+    });
+
+    const block = response.content[0];
+    return block.type === 'text' ? block.text : '';
   }
 
-  throw new Error('All Gemini models are rate-limited. Please try again later.');
-}
-  // ─── Router: picks Groq or Gemini based on file type ─────────────
+  // ─── Router: picks Groq or Claude based on file type ─────────────
   private async ask(
     system: string,
     prompt: string,
@@ -91,10 +104,9 @@ private async askGemini(
     }
 
     if (isPdf || isVideo) {
-      return this.askGemini(system, prompt, fileData, fileMimeType);
+      return this.askClaude(system, prompt, fileData, fileMimeType);
     }
 
-    // Fallback: treat as text only
     return this.askGroq(system, prompt);
   }
 
@@ -163,7 +175,8 @@ ${text ? `Notes:\n${text}` : ''}`;
     );
     return { summary };
   }
-async generateFlashcards(
+
+  async generateFlashcards(
     text?: string,
     count: number = 10,
     fileData?: string,
@@ -189,5 +202,4 @@ ${text ? `Text: ${text}` : ''}`;
     const flashcards = JSON.parse(raw.replace(/```json|```/g, '').trim());
     return { flashcards };
   }
-  }
-  
+}
