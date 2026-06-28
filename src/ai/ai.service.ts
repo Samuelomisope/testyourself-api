@@ -50,7 +50,7 @@ private async askGemini(
   fileData: string,
   fileMimeType: string,
 ): Promise<string> {
-  const models = ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-flash-8b'];
+  const models = ['gemini-2.0-flash', 'gemini-2.0-flash-lite'];
 
   for (const modelName of models) {
     try {
