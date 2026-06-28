@@ -24,12 +24,13 @@ export class UsersController {
     return this.usersService.getUserStats(user.sub);
   }
 
- @Get('me/activity')
+@Get('me/activity')
 async getMyActivity(
   @CurrentUser() user: AuthUser,
   @Query('type') type?: string,
+  @Query('days') days?: string,
 ) {
-  return this.usersService.getRecentActivity(user.sub, type);
+  return this.usersService.getRecentActivity(user.sub, type, days ? parseInt(days, 10) : 7);
 }
   @Patch('me')
   async updateMe(

@@ -5,15 +5,21 @@ import { PrismaService } from '../prisma/prisma.service';
 export class UsersService {
   constructor(private prisma: PrismaService) {}
 
-  async getRecentActivity(uid: string, type?: string) {
+async getRecentActivity(uid: string, type?: string, days = 7) {
     const user = await this.prisma.user.findUnique({ where: { id: uid } });
     if (!user) return [];
+    const since = new Date();
+    since.setDate(since.getDate() - days);
     return this.prisma.activityLog.findMany({
-      where: { userId: user.id, ...(type ? { type } : {}) },
+      where: {
+        userId: user.id,
+        createdAt: { gte: since },
+        ...(type ? { type } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
-  }
+}
 
   async searchUsers(q: string) {
     return this.prisma.user.findMany({
