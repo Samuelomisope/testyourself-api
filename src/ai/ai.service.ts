@@ -85,30 +85,32 @@ export class AiService {
   }
 
   // ─── Router: picks Groq or Claude based on file type ─────────────
-  private async ask(
-    system: string,
-    prompt: string,
-    fileData?: string,
-    fileMimeType?: string,
-  ): Promise<string> {
-    if (!fileData || !fileMimeType) {
-      return this.askGroq(system, prompt);
-    }
-
-    const isImage = fileMimeType.startsWith('image/');
+ private async askClaude(
+  system: string,
+  prompt: string,
+  fileData: string,
+  fileMimeType: string,
+): Promise<string> {
+  try {
     const isPdf = fileMimeType === 'application/pdf';
-    const isVideo = fileMimeType.startsWith('video/');
+    const contentBlock: any = isPdf
+      ? { type: 'document', source: { type: 'base64', media_type: fileMimeType, data: fileData } }
+      : { type: 'text', text: `[File of type ${fileMimeType} provided]` };
 
-    if (isImage) {
-      return this.askGroq(system, prompt, fileData, fileMimeType);
-    }
+    const response = await this.anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1000,
+      system,
+      messages: [{ role: 'user', content: [contentBlock, { type: 'text', text: prompt }] }],
+    });
 
-    if (isPdf || isVideo) {
-      return this.askClaude(system, prompt, fileData, fileMimeType);
-    }
-
-    return this.askGroq(system, prompt);
+    const block = response.content[0];
+    return block.type === 'text' ? block.text : '';
+  } catch {
+    // Fall back to Groq without the file
+    return this.askGroq(system, `${prompt}\n\n[Note: A PDF was provided but could not be processed. Answer based on the question only.]`);
   }
+}
 
   // ─── Features ─────────────────────────────────────────────────────
   async generateQuiz(
