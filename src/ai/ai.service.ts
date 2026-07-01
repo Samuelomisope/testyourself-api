@@ -119,32 +119,34 @@ ${text ? `Text: ${text}` : ''}`;
   }
 
   // ─── Generate quiz from a library material ────────────────────────
-  async generateQuizFromMaterial(
-    materialId: string,
-    count: number = 5,
-    difficulty: string = 'Medium',
-    signedUrl?: string,
-  ) {
-    const material = await this.prisma.studyMaterial.findUnique({
-      where: { id: materialId },
-    });
+ async generateQuizFromMaterial(
+  materialId: string,
+  count: number = 5,
+  difficulty: string = 'Medium',
+  signedUrl?: string,
+) {
+  const material = await this.prisma.studyMaterial.findUnique({
+    where: { id: materialId },
+  });
 
-    if (!material) throw new NotFoundException('Study material not found.');
+  if (!material) throw new NotFoundException('Study material not found.');
 
-    const isPdf = material.fileType === 'application/pdf' || material.fileType === 'pdf';
-    if (!isPdf) throw new BadRequestException('Only PDF materials are supported for quiz generation.');
+  const isPdf = material.fileType === 'application/pdf' || material.fileType === 'pdf';
+  if (!isPdf) throw new BadRequestException('Only PDF materials are supported.');
 
-    // Use signedUrl if provided (private R2 bucket), otherwise try fileUrl (public bucket)
-    const fetchUrl = signedUrl ?? material.fileUrl;
+  const fetchUrl = signedUrl ?? material.fileUrl;
 
-    const response = await fetch(fetchUrl);
-    if (!response.ok) throw new BadRequestException('Could not fetch the study material file.');
+  const response = await fetch(fetchUrl);
+  console.log('Fetching URL:', fetchUrl);
+  console.log('Response status:', response.status);
 
-    const buffer = Buffer.from(await response.arrayBuffer());
-    const fileData = buffer.toString('base64');
+  if (!response.ok) throw new BadRequestException('Could not fetch the study material file.');
 
-    return this.generateQuiz('', count, difficulty, fileData, 'application/pdf');
-  }
+  const buffer = Buffer.from(await response.arrayBuffer());
+  console.log('Buffer size:', buffer.length);
+
+  return this.generateQuiz('', count, difficulty, buffer.toString('base64'), 'application/pdf');
+}
 
   async askQuestion(
     question: string,
