@@ -1,13 +1,14 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import Groq from 'groq-sdk';
 import Anthropic from '@anthropic-ai/sdk';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class AiService {
   private groq: Groq;
   private anthropic: Anthropic;
 
-  constructor() {
+  constructor(private readonly prisma: PrismaService) {
     this.groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
     this.anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   }
@@ -42,75 +43,50 @@ export class AiService {
     return response.choices[0].message.content ?? '';
   }
 
-  // ─── Claude: PDF + video ──────────────────────────────────────────
+  // ─── Claude: PDF ──────────────────────────────────────────────────
   private async askClaude(
     system: string,
     prompt: string,
     fileData: string,
     fileMimeType: string,
   ): Promise<string> {
-    const isPdf = fileMimeType === 'application/pdf';
+    try {
+      const contentBlock: any = {
+        type: 'document',
+        source: { type: 'base64', media_type: 'application/pdf', data: fileData },
+      };
 
-    const contentBlock: any = isPdf
-      ? {
-          type: 'document',
-          source: {
-            type: 'base64',
-            media_type: fileMimeType,
-            data: fileData,
-          },
-        }
-      : {
-          type: 'text',
-          text: `[File of type ${fileMimeType} was provided but cannot be read directly. Please answer based on the prompt only.]`,
-        };
+      const response = await this.anthropic.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1000,
+        system,
+        messages: [{ role: 'user', content: [contentBlock, { type: 'text', text: prompt }] }],
+      });
 
-    const response = await this.anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1000,
-      system,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            contentBlock,
-            { type: 'text', text: prompt },
-          ],
-        },
-      ],
-    });
-
-    const block = response.content[0];
-    return block.type === 'text' ? block.text : '';
+      const block = response.content[0];
+      return block.type === 'text' ? block.text : '';
+    } catch {
+      return this.askGroq(
+        system,
+        `${prompt}\n\n[Note: A PDF was provided but could not be processed. Answer based on the question only.]`,
+      );
+    }
   }
 
-  // ─── Router: picks Groq or Claude based on file type ─────────────
- private async askClaude(
-  system: string,
-  prompt: string,
-  fileData: string,
-  fileMimeType: string,
-): Promise<string> {
-  try {
-    const isPdf = fileMimeType === 'application/pdf';
-    const contentBlock: any = isPdf
-      ? { type: 'document', source: { type: 'base64', media_type: fileMimeType, data: fileData } }
-      : { type: 'text', text: `[File of type ${fileMimeType} provided]` };
-
-    const response = await this.anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1000,
-      system,
-      messages: [{ role: 'user', content: [contentBlock, { type: 'text', text: prompt }] }],
-    });
-
-    const block = response.content[0];
-    return block.type === 'text' ? block.text : '';
-  } catch {
-    // Fall back to Groq without the file
-    return this.askGroq(system, `${prompt}\n\n[Note: A PDF was provided but could not be processed. Answer based on the question only.]`);
+  // ─── Router: picks Claude (PDF) or Groq (text/image) ─────────────
+  private async ask(
+    system: string,
+    prompt: string,
+    fileData?: string,
+    fileMimeType?: string,
+  ): Promise<string> {
+    if (fileData && fileMimeType) {
+      const isPdf = fileMimeType === 'application/pdf' || fileMimeType === 'pdf';
+      if (isPdf) return this.askClaude(system, prompt, fileData, fileMimeType);
+      if (fileMimeType.startsWith('image/')) return this.askGroq(system, prompt, fileData, fileMimeType);
+    }
+    return this.askGroq(system, prompt);
   }
-}
 
   // ─── Features ─────────────────────────────────────────────────────
   async generateQuiz(
@@ -120,9 +96,10 @@ export class AiService {
     fileData?: string,
     fileMimeType?: string,
   ) {
-    const fileType = fileMimeType?.startsWith('video/') ? 'video' :
-                     fileMimeType === 'application/pdf' ? 'PDF' :
-                     fileMimeType?.startsWith('image/') ? 'image' : 'text';
+    const fileType =
+      fileMimeType?.startsWith('video/') ? 'video' :
+      fileMimeType === 'application/pdf' || fileMimeType === 'pdf' ? 'PDF' :
+      fileMimeType?.startsWith('image/') ? 'image' : 'text';
 
     const prompt = `Generate ${count} ${difficulty} multiple choice questions from this ${fileType}.
 Return ONLY a valid JSON array. Format:
@@ -139,6 +116,34 @@ ${text ? `Text: ${text}` : ''}`;
 
     const questions = JSON.parse(raw.replace(/```json|```/g, '').trim());
     return { questions };
+  }
+
+  // ─── Generate quiz from a library material ────────────────────────
+  async generateQuizFromMaterial(
+    materialId: string,
+    count: number = 5,
+    difficulty: string = 'Medium',
+    signedUrl?: string,
+  ) {
+    const material = await this.prisma.studyMaterial.findUnique({
+      where: { id: materialId },
+    });
+
+    if (!material) throw new NotFoundException('Study material not found.');
+
+    const isPdf = material.fileType === 'application/pdf' || material.fileType === 'pdf';
+    if (!isPdf) throw new BadRequestException('Only PDF materials are supported for quiz generation.');
+
+    // Use signedUrl if provided (private R2 bucket), otherwise try fileUrl (public bucket)
+    const fetchUrl = signedUrl ?? material.fileUrl;
+
+    const response = await fetch(fetchUrl);
+    if (!response.ok) throw new BadRequestException('Could not fetch the study material file.');
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const fileData = buffer.toString('base64');
+
+    return this.generateQuiz('', count, difficulty, fileData, 'application/pdf');
   }
 
   async askQuestion(
@@ -161,9 +166,10 @@ ${text ? `Text: ${text}` : ''}`;
     fileData?: string,
     fileMimeType?: string,
   ) {
-    const fileType = fileMimeType?.startsWith('video/') ? 'video content' :
-                     fileMimeType === 'application/pdf' ? 'PDF content' :
-                     fileMimeType?.startsWith('image/') ? 'image content' : 'notes';
+    const fileType =
+      fileMimeType?.startsWith('video/') ? 'video content' :
+      fileMimeType === 'application/pdf' || fileMimeType === 'pdf' ? 'PDF content' :
+      fileMimeType?.startsWith('image/') ? 'image content' : 'notes';
 
     const prompt = `Summarize the following ${fileType} as "${style}". Be concise and clear.
 
@@ -184,9 +190,10 @@ ${text ? `Notes:\n${text}` : ''}`;
     fileData?: string,
     fileMimeType?: string,
   ) {
-    const fileType = fileMimeType?.startsWith('video/') ? 'video' :
-                     fileMimeType === 'application/pdf' ? 'PDF' :
-                     fileMimeType?.startsWith('image/') ? 'image' : 'text';
+    const fileType =
+      fileMimeType?.startsWith('video/') ? 'video' :
+      fileMimeType === 'application/pdf' || fileMimeType === 'pdf' ? 'PDF' :
+      fileMimeType?.startsWith('image/') ? 'image' : 'text';
 
     const prompt = `Generate ${count} flashcards from this ${fileType}.
 Return ONLY a valid JSON array. Format:
