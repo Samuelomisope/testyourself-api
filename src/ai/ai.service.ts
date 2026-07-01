@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import Groq from 'groq-sdk';
 import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../prisma/prisma.service';
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 @Injectable()
 export class AiService {
@@ -11,6 +12,31 @@ export class AiService {
   constructor(private readonly prisma: PrismaService) {
     this.groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
     this.anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  }
+
+  // ─── Extract text from PDF buffer using pdfjs-dist ───────────────
+  private async extractPdfText(buffer: Buffer): Promise<string> {
+    try {
+      const uint8Array = new Uint8Array(buffer);
+      const loadingTask = pdfjsLib.getDocument({ data: uint8Array, useSystemFonts: true });
+      const pdf = await loadingTask.promise;
+
+      const textParts: string[] = [];
+      for (let i = 1; i <= Math.min(pdf.numPages, 20); i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        const pageText = content.items
+          .map((item: any) => item.str)
+          .join(' ')
+          .trim();
+        if (pageText) textParts.push(`[Page ${i}]\n${pageText}`);
+      }
+
+      return textParts.join('\n\n');
+    } catch (err) {
+      console.error('PDF text extraction failed:', err);
+      return '';
+    }
   }
 
   // ─── Groq: text + image ───────────────────────────────────────────
@@ -33,7 +59,7 @@ export class AiService {
 
     const response = await this.groq.chat.completions.create({
       model: imageData ? 'meta-llama/llama-4-scout-17b-16e-instruct' : 'llama-3.3-70b-versatile',
-      max_tokens: 4000,
+      max_tokens: 2000,
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: imageData ? userContent : prompt },
@@ -55,8 +81,10 @@ export class AiService {
         type: 'document',
         source: { type: 'base64', media_type: 'application/pdf', data: fileData },
       };
-       console.log('Content block type:', contentBlock.type);
+
+      console.log('Content block type:', contentBlock.type);
       console.log('File data length:', fileData?.length);
+
       const response = await this.anthropic.messages.create({
         model: 'claude-sonnet-4-6',
         max_tokens: 4000,
@@ -66,7 +94,8 @@ export class AiService {
 
       const block = response.content[0];
       return block.type === 'text' ? block.text : '';
-    } catch {
+    } catch (err) {
+      console.error('Claude failed, falling back to Groq:', err);
       return this.askGroq(
         system,
         `${prompt}\n\n[Note: A PDF was provided but could not be processed. Answer based on the question only.]`,
@@ -97,9 +126,9 @@ export class AiService {
     fileData?: string,
     fileMimeType?: string,
   ) {
-    const fileType =
-      fileMimeType?.startsWith('video/') ? 'video' :
-      fileMimeType === 'application/pdf' || fileMimeType === 'pdf' ? 'PDF' :
+    const isPdf = fileMimeType === 'application/pdf' || fileMimeType === 'pdf';
+    const fileType = fileMimeType?.startsWith('video/') ? 'video' :
+      isPdf ? 'PDF' :
       fileMimeType?.startsWith('image/') ? 'image' : 'text';
 
     const prompt = `You are given a ${fileType} document. Read it carefully and generate ${count} ${difficulty} multiple choice questions based ONLY on the specific content, facts, terms, and concepts found in this document. Do NOT generate generic questions. Every question must reference something explicitly stated in the document.
@@ -107,10 +136,10 @@ export class AiService {
 Return ONLY a valid JSON array. Format:
 [{"question":"...","options":["A. ...","B. ...","C. ...","D. ..."],"answer":"A. ..."}]
 
-${text ? `Text: ${text}` : ''}`;
+${text ? `Content:\n${text}` : ''}`;
 
     const raw = await this.ask(
-      'You are TESTYOURSELF AI. You generate quiz questions STRICTLY from the provided document content only. Never generate generic study tips or meta questions. Return only raw JSON arrays with no markdown backticks, no explanation.',
+      'You are TESTYOURSELF AI. Generate quiz questions STRICTLY from the provided document content only. Never generate generic study tips or meta questions. Return only raw JSON arrays with no markdown backticks, no explanation.',
       prompt,
       fileData,
       fileMimeType,
@@ -121,34 +150,46 @@ ${text ? `Text: ${text}` : ''}`;
   }
 
   // ─── Generate quiz from a library material ────────────────────────
- async generateQuizFromMaterial(
-  materialId: string,
-  count: number = 5,
-  difficulty: string = 'Medium',
-  signedUrl?: string,
-) {
-  const material = await this.prisma.studyMaterial.findUnique({
-    where: { id: materialId },
-  });
+  async generateQuizFromMaterial(
+    materialId: string,
+    count: number = 5,
+    difficulty: string = 'Medium',
+    signedUrl?: string,
+  ) {
+    const material = await this.prisma.studyMaterial.findUnique({
+      where: { id: materialId },
+    });
 
-  if (!material) throw new NotFoundException('Study material not found.');
+    if (!material) throw new NotFoundException('Study material not found.');
 
-  const isPdf = material.fileType === 'application/pdf' || material.fileType === 'pdf';
-  if (!isPdf) throw new BadRequestException('Only PDF materials are supported.');
+    const isPdf = material.fileType === 'application/pdf' || material.fileType === 'pdf';
+    if (!isPdf) throw new BadRequestException('Only PDF materials are supported for quiz generation.');
 
-  const fetchUrl = signedUrl ?? material.fileUrl;
+    const fetchUrl = signedUrl ?? material.fileUrl;
 
-  const response = await fetch(fetchUrl);
-  console.log('Fetching URL:', fetchUrl);
-  console.log('Response status:', response.status);
+    const response = await fetch(fetchUrl);
+    console.log('Fetching URL:', fetchUrl);
+    console.log('Response status:', response.status);
 
-  if (!response.ok) throw new BadRequestException('Could not fetch the study material file.');
+    if (!response.ok) throw new BadRequestException('Could not fetch the study material file.');
 
-  const buffer = Buffer.from(await response.arrayBuffer());
-  console.log('Buffer size:', buffer.length);
+    const buffer = Buffer.from(await response.arrayBuffer());
+    console.log('Buffer size:', buffer.length);
 
-  return this.generateQuiz('', count, difficulty, buffer.toString('base64'), 'application/pdf');
-}
+    // Extract text from PDF first
+    const extractedText = await this.extractPdfText(buffer);
+    console.log('Extracted text length:', extractedText.length);
+    console.log('Extracted text preview:', extractedText.slice(0, 200));
+
+    if (extractedText && extractedText.length > 100) {
+      // Text-based PDF — send extracted text to Groq (faster, cheaper)
+      return this.generateQuiz(extractedText, count, difficulty);
+    } else {
+      // Scanned PDF — fall back to Claude document vision
+      const fileData = buffer.toString('base64');
+      return this.generateQuiz('', count, difficulty, fileData, 'application/pdf');
+    }
+  }
 
   async askQuestion(
     question: string,
@@ -170,8 +211,7 @@ ${text ? `Text: ${text}` : ''}`;
     fileData?: string,
     fileMimeType?: string,
   ) {
-    const fileType =
-      fileMimeType?.startsWith('video/') ? 'video content' :
+    const fileType = fileMimeType?.startsWith('video/') ? 'video content' :
       fileMimeType === 'application/pdf' || fileMimeType === 'pdf' ? 'PDF content' :
       fileMimeType?.startsWith('image/') ? 'image content' : 'notes';
 
@@ -194,9 +234,9 @@ ${text ? `Notes:\n${text}` : ''}`;
     fileData?: string,
     fileMimeType?: string,
   ) {
-    const fileType =
-      fileMimeType?.startsWith('video/') ? 'video' :
-      fileMimeType === 'application/pdf' || fileMimeType === 'pdf' ? 'PDF' :
+    const isPdf = fileMimeType === 'application/pdf' || fileMimeType === 'pdf';
+    const fileType = fileMimeType?.startsWith('video/') ? 'video' :
+      isPdf ? 'PDF' :
       fileMimeType?.startsWith('image/') ? 'image' : 'text';
 
     const prompt = `Generate ${count} flashcards from this ${fileType}.
@@ -215,4 +255,4 @@ ${text ? `Text: ${text}` : ''}`;
     const flashcards = JSON.parse(raw.replace(/```json|```/g, '').trim());
     return { flashcards };
   }
-}
+}[]
