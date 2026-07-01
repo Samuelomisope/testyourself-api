@@ -33,7 +33,7 @@ export class AiService {
 
     const response = await this.groq.chat.completions.create({
       model: imageData ? 'meta-llama/llama-4-scout-17b-16e-instruct' : 'llama-3.3-70b-versatile',
-      max_tokens: 1000,
+      max_tokens: 4000,
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: imageData ? userContent : prompt },
@@ -55,10 +55,11 @@ export class AiService {
         type: 'document',
         source: { type: 'base64', media_type: 'application/pdf', data: fileData },
       };
-
+       console.log('Content block type:', contentBlock.type);
+      console.log('File data length:', fileData?.length);
       const response = await this.anthropic.messages.create({
         model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
+        max_tokens: 4000,
         system,
         messages: [{ role: 'user', content: [contentBlock, { type: 'text', text: prompt }] }],
       });
