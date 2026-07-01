@@ -101,14 +101,15 @@ export class AiService {
       fileMimeType === 'application/pdf' || fileMimeType === 'pdf' ? 'PDF' :
       fileMimeType?.startsWith('image/') ? 'image' : 'text';
 
-    const prompt = `Generate ${count} ${difficulty} multiple choice questions from this ${fileType}.
+    const prompt = `You are given a ${fileType} document. Read it carefully and generate ${count} ${difficulty} multiple choice questions based ONLY on the specific content, facts, terms, and concepts found in this document. Do NOT generate generic questions. Every question must reference something explicitly stated in the document.
+
 Return ONLY a valid JSON array. Format:
 [{"question":"...","options":["A. ...","B. ...","C. ...","D. ..."],"answer":"A. ..."}]
 
 ${text ? `Text: ${text}` : ''}`;
 
     const raw = await this.ask(
-      'You are TESTYOURSELF AI, a study assistant. Return only raw JSON arrays with no markdown backticks, no explanation.',
+      'You are TESTYOURSELF AI. You generate quiz questions STRICTLY from the provided document content only. Never generate generic study tips or meta questions. Return only raw JSON arrays with no markdown backticks, no explanation.',
       prompt,
       fileData,
       fileMimeType,
