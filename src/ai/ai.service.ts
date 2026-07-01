@@ -82,9 +82,6 @@ export class AiService {
         source: { type: 'base64', media_type: 'application/pdf', data: fileData },
       };
 
-      console.log('Content block type:', contentBlock.type);
-      console.log('File data length:', fileData?.length);
-
       const response = await this.anthropic.messages.create({
         model: 'claude-sonnet-4-6',
         max_tokens: 4000,
@@ -176,18 +173,15 @@ ${text ? `Content:\n${text}` : ''}`;
     const buffer = Buffer.from(await response.arrayBuffer());
     console.log('Buffer size:', buffer.length);
 
-    // Extract text from PDF first
     const extractedText = await this.extractPdfText(buffer);
     console.log('Extracted text length:', extractedText.length);
-    console.log('Extracted text preview:', extractedText.slice(0, 200));
 
     if (extractedText && extractedText.length > 100) {
-      // Text-based PDF — send extracted text to Groq (faster, cheaper)
       return this.generateQuiz(extractedText, count, difficulty);
     } else {
-      // Scanned PDF — fall back to Claude document vision
-      const fileData = buffer.toString('base64');
-      return this.generateQuiz('', count, difficulty, fileData, 'application/pdf');
+      throw new BadRequestException(
+        'This PDF appears to be scanned and has no readable text. Please upload a text-based PDF or paste the content manually.'
+      );
     }
   }
 
@@ -255,4 +249,4 @@ ${text ? `Text: ${text}` : ''}`;
     const flashcards = JSON.parse(raw.replace(/```json|```/g, '').trim());
     return { flashcards };
   }
-}[]
+}
