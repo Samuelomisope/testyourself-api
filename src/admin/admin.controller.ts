@@ -131,4 +131,28 @@ async sendMessageToUser(
   return this.adminService.sendMessageToUser(body.userId, body.subject, body.message);
 }
 
+// ── Novels ──────────────────────────────────────────────────
+  @Get('novels')
+  async getAllNovels(@CurrentUser() user: AuthUser) {
+    requireAdmin(user);
+    return this.adminService.getAllNovels();
+  }
+
+  @Delete('novels/:id')
+  async deleteNovel(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    requireAdmin(user);
+    return this.adminService.deleteNovel(id);
+  }
+
+  @Patch('novels/:id/toggle-hidden')
+  async toggleHideNovel(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    requireAdmin(user);
+    return this.adminService.toggleHideNovel(id);
+  }
+
+  @Delete('episodes/:id')
+  async deleteEpisode(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    requireAdmin(user);
+    return this.adminService.deleteEpisode(id);
+  }
 }

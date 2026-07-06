@@ -181,4 +181,31 @@ async sendMessageToUser(userId: string, subject: string, message: string) {
 
   return { success: true, sentTo: user.email };
 }
+
+async getAllNovels() {
+    return this.prisma.novel.findMany({
+      include: {
+        author: { select: { id: true, displayName: true, penName: true, email: true } },
+        _count: { select: { episodes: true, reviews: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async deleteNovel(id: string) {
+    return this.prisma.novel.delete({ where: { id } });
+  }
+
+  async deleteEpisode(id: string) {
+    return this.prisma.episode.delete({ where: { id } });
+  }
+
+  async toggleHideNovel(id: string) {
+    const novel = await this.prisma.novel.findUnique({ where: { id } });
+    if (!novel) throw new Error('Novel not found');
+    return this.prisma.novel.update({
+      where: { id },
+      data: { isHidden: !novel.isHidden },
+    });
+  }
 }

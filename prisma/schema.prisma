@@ -74,6 +74,7 @@ model User {
   writerBio      String?
   becameWriterAt DateTime?
   writerAvatarUrl String?
+  novelReviews NovelReview[]
   novels         Novel[]
 }
 
@@ -409,6 +410,8 @@ model Novel {
 
   @@index([authorId])
   @@index([genre])
+  isHidden  Boolean       @default(false)
+  reviews   NovelReview[]
 }
 
 model Episode {
@@ -445,4 +448,19 @@ enum Genre {
   ACTION
   HISTORICAL
   POETRY
+}
+
+model NovelReview {
+  id        String   @id @default(cuid())
+  rating    Int
+  comment   String?
+  userId    String
+  novelId   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id])
+  novel     Novel    @relation(fields: [novelId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, novelId])
+  @@index([novelId])
 }

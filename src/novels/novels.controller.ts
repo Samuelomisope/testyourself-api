@@ -45,4 +45,15 @@ export class NovelsController {
   addEpisode(@Req() req, @Param('id') id: string, @Body() dto: CreateEpisodeDto) {
     return this.novelsService.addEpisode(id, req.user.sub, dto);
   }
+
+  @Get('novels/:id/reviews')
+  getReviews(@Param('id') id: string) {
+    return this.novelsService.getReviews(id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('novels/:id/reviews')
+  upsertReview(@Req() req, @Param('id') id: string, @Body() dto: { rating: number; comment?: string }) {
+    return this.novelsService.upsertReview(id, req.user.sub, dto.rating, dto.comment);
+  }
 }
