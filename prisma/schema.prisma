@@ -3,9 +3,10 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  directUrl         = env("DIRECT_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
 model University {
@@ -27,7 +28,7 @@ model University {
 
 model User {
   id                  String               @id @default(uuid())
-  firebaseUid         String?               @unique
+  firebaseUid         String?              @unique
   displayName         String
   email               String               @unique
   photoURL            String?
@@ -47,6 +48,7 @@ model User {
   isBanned            Boolean              @default(false)
   chatSnapUsername    String?              @unique
   chatWallpaper       String?              @default("default")
+  googleId            String?              @unique
   activityLogs        ActivityLog[]
   buyerProfile        BuyerProfile?
   chatRooms           ChatRoomMember[]
@@ -67,7 +69,12 @@ model User {
   statusViews         StatusView[]
   studyMaterials      StudyMaterial[]
   university          University?          @relation(fields: [universityId], references: [id])
-  googleId    String? @unique
+  isWriter       Boolean    @default(false)
+  penName        String?
+  writerBio      String?
+  becameWriterAt DateTime?
+  writerAvatarUrl String?
+  novels         Novel[]
 }
 
 model Admin {
@@ -386,4 +393,56 @@ enum ReviewRating {
   HARD
   GOOD
   EASY
+}
+model Novel {
+  id          String      @id @default(cuid())
+  title       String
+  synopsis    String
+  genre       Genre
+  coverUrl    String?
+  status      NovelStatus @default(ONGOING)
+  authorId    String
+  author      User        @relation(fields: [authorId], references: [id])
+  episodes    Episode[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([authorId])
+  @@index([genre])
+}
+
+model Episode {
+  id            String    @id @default(cuid())
+  novelId       String
+  novel         Novel     @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  title         String
+  content       String    @db.Text
+  episodeNumber Int
+  isPublished   Boolean   @default(false)
+  releasedAt    DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@unique([novelId, episodeNumber])
+  @@index([novelId])
+}
+
+enum NovelStatus {
+  ONGOING
+  COMPLETED
+  HIATUS
+}
+
+enum Genre {
+  ROMANCE
+  FANTASY
+  THRILLER
+  MYSTERY
+  SCI_FI
+  HORROR
+  DRAMA
+  ADVENTURE
+  COMEDY
+  ACTION
+  HISTORICAL
+  POETRY
 }

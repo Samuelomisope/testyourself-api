@@ -75,4 +75,17 @@ export class AuthService {
       { expiresIn: '15m' },
     );
   }
+
+  async becomeWriter(userId: string, penName: string, bio?: string, avatarUrl?: string) {
+  return this.prisma.user.update({
+    where: { id: userId },
+    data: {
+      isWriter: true,
+      penName,
+      writerBio: bio,
+      writerAvatarUrl: avatarUrl,
+      becameWriterAt: new Date(),
+    },
+  });
+}
 }

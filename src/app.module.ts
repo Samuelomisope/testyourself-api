@@ -20,6 +20,7 @@ import { AnnouncementModule } from './announcement/announcement.module';
 import { FlashcardModule } from './flashcard/flashcard.module';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { SignedUrlInterceptor } from './common/signed-url.interceptor';
+import { NovelsModule } from './novels/novels.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { SignedUrlInterceptor } from './common/signed-url.interceptor';
     FeedbackModule,
     AnnouncementModule,
     FlashcardModule,
+    NovelsModule,
   ],
   controllers: [SearchController],
   providers: [PrismaService,

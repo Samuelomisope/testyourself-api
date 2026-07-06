@@ -1,6 +1,8 @@
 import { Body, Controller, Post, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
+import { UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from './jwt-auth.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -42,4 +44,11 @@ export class AuthController {
     });
     return { success: true };
   }
+
+  
+@UseGuards(JwtAuthGuard)
+@Post('become-writer')
+becomeWriter(@Req() req, @Body() dto: { penName: string; bio?: string; avatarUrl?: string }) {
+  return this.authService.becomeWriter(req.user.sub, dto.penName, dto.bio, dto.avatarUrl);
+}
 }
