@@ -35,6 +35,7 @@ model User {
   emailVerified       Boolean              @default(false)
   universityId        String?
   faculty             String?
+  course              String?
   department          String?
   bio                 String?
   isVerifiedStudent   Boolean              @default(false)
@@ -105,6 +106,7 @@ model StudyMaterial {
   updatedAt      DateTime        @updatedAt
   level          String?
   semester       String?
+  course         String?
   flashcardDecks FlashcardDeck[]
   university     University      @relation(fields: [universityId], references: [id])
   user           User            @relation(fields: [userId], references: [id])

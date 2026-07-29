@@ -28,6 +28,7 @@ export class StudyMaterialController {
       department?: string;
       level?: string;
       semester?: string;
+      course?: string;
       isPublic?: string;
       university?: string;
     },
@@ -67,6 +68,7 @@ export class StudyMaterialController {
       department: body.department,
       level: body.level,
       semester: body.semester,
+      course: body.course,
       isPublic: body.isPublic !== 'false',
     });
   }
@@ -78,6 +80,7 @@ export class StudyMaterialController {
     @Query('department') department?: string,
     @Query('level') level?: string,
     @Query('semester') semester?: string,
+    @Query('course') course?: string,
     @Query('search') search?: string,
   ) {
     const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
@@ -89,12 +92,14 @@ export class StudyMaterialController {
         ...(department && { department }),
         ...(level && { level }),
         ...(semester && { semester }),
+        ...(course && { course }),
         ...(search && {
           OR: [
             { title: { contains: search, mode: 'insensitive' } },
             { description: { contains: search, mode: 'insensitive' } },
             { faculty: { contains: search, mode: 'insensitive' } },
             { department: { contains: search, mode: 'insensitive' } },
+            { course: { contains: search, mode: 'insensitive' } },
           ],
         }),
         OR: [
@@ -135,6 +140,7 @@ export class StudyMaterialController {
       department?: string;
       level?: string;
       semester?: string;
+      course?: string;
       isPublic?: string;
     },
     @CurrentUser() currentUser: AuthUser,
@@ -148,6 +154,7 @@ export class StudyMaterialController {
       department: body.department,
       level: body.level,
       semester: body.semester,
+      course: body.course,
       isPublic: body.isPublic === undefined ? undefined : body.isPublic !== 'false',
     });
   }

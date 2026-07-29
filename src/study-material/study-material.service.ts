@@ -161,6 +161,7 @@ async getSignedFileUrl(fileUrl: string): Promise<string> {
               department: opts.department,
               level: opts.level,
               semester: opts.semester,
+              course: opts.semester,
               isPublic: opts.isPublic,
             });
 
@@ -205,6 +206,7 @@ async getSignedFileUrl(fileUrl: string): Promise<string> {
     department?: string;
     level?: string;
     semester?: string;
+    course?: string;
     isPublic?: boolean;
   }) {
     const fileUrl = await this.uploadToR2(data.fileBuffer, data.originalName, data.fileType);
@@ -221,6 +223,7 @@ async getSignedFileUrl(fileUrl: string): Promise<string> {
         department: data.department,
         level: data.level,
         semester: data.semester,
+        course: data.course,
         isPublic: data.isPublic ?? true,
       },
       include: { user: { select: { displayName: true, photoURL: true } } },
@@ -241,6 +244,7 @@ async getSignedFileUrl(fileUrl: string): Promise<string> {
     title?: string;
     description?: string;
     faculty?: string;
+    course?: string;
     department?: string;
     level?: string;
     semester?: string;
@@ -256,6 +260,7 @@ async getSignedFileUrl(fileUrl: string): Promise<string> {
         ...(data.title !== undefined && { title: data.title }),
         ...(data.description !== undefined && { description: data.description }),
         ...(data.faculty !== undefined && { faculty: data.faculty }),
+        ...(data.course !== undefined && { course: data.course }),
         ...(data.department !== undefined && { department: data.department }),
         ...(data.level !== undefined && { level: data.level }),
         ...(data.semester !== undefined && { semester: data.semester }),
@@ -307,6 +312,7 @@ async getSignedFileUrl(fileUrl: string): Promise<string> {
     department?: string;
     level?: string;
     semester?: string;
+    course?: string;
     search?: string;
   }) {
     const materials = await this.prisma.studyMaterial.findMany({
@@ -316,6 +322,7 @@ async getSignedFileUrl(fileUrl: string): Promise<string> {
         ...(filters?.department && { department: filters.department }),
         ...(filters?.level && { level: filters.level }),
         ...(filters?.semester && { semester: filters.semester }),
+        ...(filters?.course && { course: filters.course }),
         ...(filters?.search && {
           OR: [
             { title: { contains: filters.search, mode: 'insensitive' } },
