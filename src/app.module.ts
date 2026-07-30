@@ -1,9 +1,8 @@
-import { Module, OnModuleInit } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 import { UniversitiesModule } from './universities/universities.module';
-import * as admin from 'firebase-admin';
-import * as fs from 'fs';
-import * as path from 'path';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
@@ -21,19 +20,17 @@ import { FlashcardModule } from './flashcard/flashcard.module';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { SignedUrlInterceptor } from './common/signed-url.interceptor';
 import { NovelsModule } from './novels/novels.module';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
-import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
 @Module({
- imports: [
+  imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     ThrottlerModule.forRoot([
       {
         name: 'default',
-        ttl: 60_000,
-        limit: 100,
+        ttl: 60_000, // 1 minute window
+        limit: 100,  // generous global default; tighter limits set per-endpoint below
       },
     ]),
     PrismaModule,
@@ -52,9 +49,8 @@ import { AppService } from './app.service';
     NovelsModule,
   ],
   controllers: [SearchController, AppController],
- providers: [PrismaService, 
-  
-  AppService,
+  providers: [PrismaService,
+    AppService,
     {
       provide: APP_INTERCEPTOR,
       useClass: SignedUrlInterceptor,
@@ -65,17 +61,4 @@ import { AppService } from './app.service';
     },
   ], // if not already global
 })
-export class AppModule implements OnModuleInit {
- onModuleInit() {
-  if (!admin.apps.length) {
-    const serviceAccount = (process.env.FIREBASE_SERVICE_ACCOUNT
-      ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)
-      : JSON.parse(fs.readFileSync(path.resolve('firebase-service-account.json'), 'utf8'))) as admin.ServiceAccount;
-
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
-    });
-    console.log('Firebase Admin initialized');
-  }
-}
-}
+export class AppModule {}

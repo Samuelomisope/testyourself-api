@@ -41,7 +41,6 @@
     "class-validator": "^0.15.1",
     "cloudinary": "^2.10.0",
     "cookie-parser": "^1.4.7",
-    "firebase-admin": "^13.10.0",
     "google-auth-library": "^10.9.0",
     "groq-sdk": "^1.2.1",
     "helmet": "^8.2.0",
