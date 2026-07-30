@@ -27,6 +27,7 @@ model University {
 }
 
 model User {
+  refreshTokens  RefreshToken[]
   id                  String               @id @default(uuid())
   firebaseUid         String?              @unique
   displayName         String
@@ -77,6 +78,19 @@ model User {
   writerAvatarUrl String?
   novelReviews NovelReview[]
   novels         Novel[]
+}
+
+model RefreshToken {
+  id         String    @id @default(uuid())
+  userId     String
+  tokenHash  String    @unique
+  issuedAt   DateTime  @default(now())
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  deviceInfo String?
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model Admin {

@@ -4,11 +4,13 @@ import { AiService } from './ai.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthUser } from '../common/decorators/current-user.decorator';
+import { Throttle } from '@nestjs/throttler';
 
 @Controller('ai')
 @UseGuards(JwtAuthGuard)
+@Throttle({ default: { limit: 15, ttl: 60_000 } })
 export class AiController {
-  constructor(private readonly aiService: AiService) {}
+constructor(private readonly aiService: AiService) {}
 
   @Post('quiz')
   @UseInterceptors(FileInterceptor('file'))
