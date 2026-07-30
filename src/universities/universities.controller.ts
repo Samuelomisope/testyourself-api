@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Param, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Param, Body, UseGuards, Header } from '@nestjs/common';
 import { UniversitiesService } from './universities.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
@@ -7,13 +7,16 @@ export class UniversitiesController {
   constructor(private readonly universitiesService: UniversitiesService) {}
 
   // Public — anyone can get the list of universities
+  // Rarely changes, so cache for 1 hour to cut DB load on every page load
   @Get()
+  @Header('Cache-Control', 'public, max-age=3600')
   findAll() {
     return this.universitiesService.findAll();
   }
 
   // Public — get one university
   @Get(':id')
+  @Header('Cache-Control', 'public, max-age=3600')
   findOne(@Param('id') id: string) {
     return this.universitiesService.findOne(id);
   }
