@@ -21,10 +21,21 @@ import { FlashcardModule } from './flashcard/flashcard.module';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { SignedUrlInterceptor } from './common/signed-url.interceptor';
 import { NovelsModule } from './novels/novels.module';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
 
 @Module({
-  imports: [
+ imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ThrottlerModule.forRoot([
+      {
+        name: 'default',
+        ttl: 60_000,
+        limit: 100,
+      },
+    ]),
     PrismaModule,
     AuthModule,
     UsersModule,
@@ -40,11 +51,17 @@ import { NovelsModule } from './novels/novels.module';
     FlashcardModule,
     NovelsModule,
   ],
-  controllers: [SearchController],
-  providers: [PrismaService,
+  controllers: [SearchController, AppController],
+ providers: [PrismaService, 
+  
+  AppService,
     {
       provide: APP_INTERCEPTOR,
       useClass: SignedUrlInterceptor,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
     },
   ], // if not already global
 })
