@@ -45,7 +45,8 @@ export function calculateSM2(input: SM2Input, rating: ReviewRating): SM2Output {
   }
 
   // Update ease factor (clamped at a minimum of 1.3 so cards never get "stuck" too hard)
-  easeFactor = easeFactor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
+  easeFactor =
+    easeFactor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
   if (easeFactor < 1.3) easeFactor = 1.3;
 
   const nextReviewDate = new Date();

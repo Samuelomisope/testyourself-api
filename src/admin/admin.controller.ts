@@ -1,5 +1,12 @@
 import {
-  Controller, Get, Delete, Patch, Post, Body, Param, UseGuards,
+  Controller,
+  Get,
+  Delete,
+  Patch,
+  Post,
+  Body,
+  Param,
+  UseGuards,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -67,7 +74,10 @@ export class AdminController {
 
   // ── Universities ─────────────────────────────────────────────────────────
   @Delete('universities/:id')
-  async deleteUniversity(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+  async deleteUniversity(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
     requireAdmin(user);
     return this.adminService.deleteUniversity(id);
   }
@@ -86,12 +96,12 @@ export class AdminController {
   }
 
   @Patch('users/:id/ban')
-async banUser(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-  requireAdmin(user);
-  return this.adminService.toggleBanUser(id);
-}
+  async banUser(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    requireAdmin(user);
+    return this.adminService.toggleBanUser(id);
+  }
 
-// ── Marketplace ───────────────────────────────────────────────────
+  // ── Marketplace ───────────────────────────────────────────────────
   @Get('sellers')
   async getAllSellers(@CurrentUser() user: AuthUser) {
     requireAdmin(user);
@@ -116,22 +126,30 @@ async banUser(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.adminService.deleteReview(id);
   }
 
+  // FIXED: this route was missing @CurrentUser() and requireAdmin() entirely —
+  // any logged-in user could previously trigger a bulk email blast to every
+  // inactive user. The redundant @UseGuards(JwtAuthGuard) (already applied at
+  // the controller level) has also been removed.
   @Post('notify-inactive')
-@UseGuards(JwtAuthGuard)
-async notifyInactiveUsers() {
-  return this.adminService.notifyInactiveUsers();
-}
+  async notifyInactiveUsers(@CurrentUser() user: AuthUser) {
+    requireAdmin(user);
+    return this.adminService.notifyInactiveUsers();
+  }
 
-@Post('send-message')
-async sendMessageToUser(
-  @CurrentUser() user: AuthUser,
-  @Body() body: { userId: string; subject: string; message: string },
-) {
-  requireAdmin(user);
-  return this.adminService.sendMessageToUser(body.userId, body.subject, body.message);
-}
+  @Post('send-message')
+  async sendMessageToUser(
+    @CurrentUser() user: AuthUser,
+    @Body() body: { userId: string; subject: string; message: string },
+  ) {
+    requireAdmin(user);
+    return this.adminService.sendMessageToUser(
+      body.userId,
+      body.subject,
+      body.message,
+    );
+  }
 
-// ── Novels ──────────────────────────────────────────────────
+  // ── Novels ──────────────────────────────────────────────────
   @Get('novels')
   async getAllNovels(@CurrentUser() user: AuthUser) {
     requireAdmin(user);
@@ -145,7 +163,10 @@ async sendMessageToUser(
   }
 
   @Patch('novels/:id/toggle-hidden')
-  async toggleHideNovel(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+  async toggleHideNovel(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
     requireAdmin(user);
     return this.adminService.toggleHideNovel(id);
   }

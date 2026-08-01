@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { calculateSM2, ReviewRating } from './sm2';
 
@@ -80,8 +84,14 @@ export class FlashcardService {
     return deck;
   }
 
-  async addCards(deckId: string, userId: string, cards: { front: string; back: string }[]) {
-    const deck = await this.prisma.flashcardDeck.findUnique({ where: { id: deckId } });
+  async addCards(
+    deckId: string,
+    userId: string,
+    cards: { front: string; back: string }[],
+  ) {
+    const deck = await this.prisma.flashcardDeck.findUnique({
+      where: { id: deckId },
+    });
     if (!deck) throw new NotFoundException('Flashcard deck not found');
     if (deck.userId !== userId) throw new ForbiddenException('Not your deck');
 
@@ -127,7 +137,9 @@ export class FlashcardService {
   }
 
   async reviewCard(flashcardId: string, userId: string, rating: ReviewRating) {
-    const card = await this.prisma.flashcard.findUnique({ where: { id: flashcardId } });
+    const card = await this.prisma.flashcard.findUnique({
+      where: { id: flashcardId },
+    });
     if (!card) throw new NotFoundException('Flashcard not found');
 
     const existing = await this.prisma.flashcardProgress.findUnique({

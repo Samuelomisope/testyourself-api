@@ -1,5 +1,11 @@
 import {
-  Controller, Get, Post, Delete, Param, Body, UseGuards,
+  Controller,
+  Get,
+  Post,
+  Delete,
+  Param,
+  Body,
+  UseGuards,
 } from '@nestjs/common';
 import { FlashcardService } from './flashcard.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -18,7 +24,8 @@ export class FlashcardController {
 
   @Post('decks')
   async createDeck(
-    @Body() body: {
+    @Body()
+    body: {
       title: string;
       description?: string;
       isPublic?: boolean;
@@ -26,9 +33,14 @@ export class FlashcardController {
     },
     @CurrentUser() currentUser: AuthUser,
   ) {
-    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: currentUser.sub },
+    });
     if (!user) throw new Error('User not found');
-    if (!user.universityId) throw new Error('University not set. Please set your university in your profile.');
+    if (!user.universityId)
+      throw new Error(
+        'University not set. Please set your university in your profile.',
+      );
 
     return this.flashcardService.createDeck({
       title: body.title,
@@ -42,14 +54,18 @@ export class FlashcardController {
 
   @Get('decks')
   async findAll(@CurrentUser() currentUser: AuthUser) {
-    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: currentUser.sub },
+    });
     if (!user || !user.universityId) return [];
     return this.flashcardService.findAll(user.id, user.universityId);
   }
 
   @Get('decks/my')
   async findMine(@CurrentUser() currentUser: AuthUser) {
-    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: currentUser.sub },
+    });
     if (!user) return [];
     return this.flashcardService.findMine(user.id);
   }
@@ -65,14 +81,21 @@ export class FlashcardController {
     @Body() body: { cards: { front: string; back: string }[] },
     @CurrentUser() currentUser: AuthUser,
   ) {
-    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: currentUser.sub },
+    });
     if (!user) throw new Error('User not found');
     return this.flashcardService.addCards(id, user.id, body.cards);
   }
 
   @Delete('decks/:id')
-  async deleteDeck(@Param('id') id: string, @CurrentUser() currentUser: AuthUser) {
-    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
+  async deleteDeck(
+    @Param('id') id: string,
+    @CurrentUser() currentUser: AuthUser,
+  ) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: currentUser.sub },
+    });
     if (!user) throw new Error('User not found');
     return this.flashcardService.deleteDeck(id, user.id);
   }
@@ -80,8 +103,13 @@ export class FlashcardController {
   // ── REVIEW (SM-2) ─────────────────────────────────────
 
   @Get('decks/:id/due')
-  async getDueCards(@Param('id') id: string, @CurrentUser() currentUser: AuthUser) {
-    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
+  async getDueCards(
+    @Param('id') id: string,
+    @CurrentUser() currentUser: AuthUser,
+  ) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: currentUser.sub },
+    });
     if (!user) return [];
     return this.flashcardService.getDueCards(id, user.id);
   }
@@ -92,7 +120,9 @@ export class FlashcardController {
     @Body() body: { rating: ReviewRating },
     @CurrentUser() currentUser: AuthUser,
   ) {
-    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: currentUser.sub },
+    });
     if (!user) throw new Error('User not found');
     return this.flashcardService.reviewCard(id, user.id, body.rating);
   }

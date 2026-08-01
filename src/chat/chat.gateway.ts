@@ -47,7 +47,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   @SubscribeMessage('sendMessage')
   async handleMessage(
-    @MessageBody() data: {
+    @MessageBody()
+    data: {
       roomId: string;
       senderId: string;
       text: string;
@@ -79,7 +80,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   @SubscribeMessage('reactMessage')
   async handleReaction(
-    @MessageBody() data: {
+    @MessageBody()
+    data: {
       messageId: string;
       userId: string;
       emoji: string;

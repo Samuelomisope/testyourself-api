@@ -1,6 +1,15 @@
 import {
-  Controller, Get, Post, Patch, Delete, Param, Query,
-  UseGuards, UseInterceptors, UploadedFile, Body
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Param,
+  Query,
+  UseGuards,
+  UseInterceptors,
+  UploadedFile,
+  Body,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { StudyMaterialService } from './study-material.service';
@@ -21,7 +30,8 @@ export class StudyMaterialController {
   @UseInterceptors(FileInterceptor('file'))
   async upload(
     @UploadedFile() file: Express.Multer.File,
-    @Body() body: {
+    @Body()
+    body: {
       title: string;
       description?: string;
       faculty?: string;
@@ -34,14 +44,19 @@ export class StudyMaterialController {
     },
     @CurrentUser() currentUser: AuthUser,
   ) {
-    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: currentUser.sub },
+    });
     if (!user) throw new Error('User not found');
     if (!file) throw new Error('No file provided');
-    if (file.size > 100 * 1024 * 1024) throw new Error('File too large. Maximum size is 100MB.');
+    if (file.size > 100 * 1024 * 1024)
+      throw new Error('File too large. Maximum size is 100MB.');
 
     let universityId = user.universityId;
     if (body.university) {
-      const uniName = Array.isArray(body.university) ? body.university[0] : body.university;
+      const uniName = Array.isArray(body.university)
+        ? body.university[0]
+        : body.university;
       const uni = await this.prisma.university.findFirst({
         where: {
           OR: [
@@ -53,7 +68,10 @@ export class StudyMaterialController {
       if (uni) universityId = uni.id;
     }
 
-    if (!universityId) throw new Error('University not found. Please set your university in your profile.');
+    if (!universityId)
+      throw new Error(
+        'University not found. Please set your university in your profile.',
+      );
 
     return this.studyMaterialService.create({
       title: body.title,
@@ -83,7 +101,9 @@ export class StudyMaterialController {
     @Query('course') course?: string,
     @Query('search') search?: string,
   ) {
-    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: currentUser.sub },
+    });
     if (!user) return [];
 
     const materials = await this.prisma.studyMaterial.findMany({
@@ -102,10 +122,7 @@ export class StudyMaterialController {
             { course: { contains: search, mode: 'insensitive' } },
           ],
         }),
-        OR: [
-          { isPublic: true },
-          { userId: user.id },
-        ],
+        OR: [{ isPublic: true }, { userId: user.id }],
       },
       orderBy: { createdAt: 'desc' },
       include: {
@@ -114,12 +131,16 @@ export class StudyMaterialController {
       },
     });
 
-    return Promise.all(materials.map(m => this.studyMaterialService.withSignedUrl(m)));
+    return Promise.all(
+      materials.map((m) => this.studyMaterialService.withSignedUrl(m)),
+    );
   }
 
   @Get('my')
   async findMine(@CurrentUser() currentUser: AuthUser) {
-    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: currentUser.sub },
+    });
     if (!user) return [];
     return this.studyMaterialService.findByUser(user.id);
   }
@@ -133,7 +154,8 @@ export class StudyMaterialController {
   @Patch(':id')
   async update(
     @Param('id') id: string,
-    @Body() body: {
+    @Body()
+    body: {
       title?: string;
       description?: string;
       faculty?: string;
@@ -145,7 +167,9 @@ export class StudyMaterialController {
     },
     @CurrentUser() currentUser: AuthUser,
   ) {
-    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: currentUser.sub },
+    });
     if (!user) throw new Error('User not found');
     return this.studyMaterialService.update(id, user.id, {
       title: body.title,
@@ -155,56 +179,88 @@ export class StudyMaterialController {
       level: body.level,
       semester: body.semester,
       course: body.course,
-      isPublic: body.isPublic === undefined ? undefined : body.isPublic !== 'false',
+      isPublic:
+        body.isPublic === undefined ? undefined : body.isPublic !== 'false',
     });
   }
 
   @Delete(':id')
   async delete(@Param('id') id: string, @CurrentUser() currentUser: AuthUser) {
-    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: currentUser.sub },
+    });
     if (!user) throw new Error('User not found');
     return this.studyMaterialService.delete(id, user.id);
   }
 
   @Post('bulk-upload')
-@UseInterceptors(FileInterceptor('zipFile', { limits: { fileSize: 250 * 1024 * 1024 } }))
-async bulkUpload(
-  @UploadedFile() file: Express.Multer.File,
-  @Body() body: {
-    department?: string;
-    level?: string;
-    semester?: string;
-    isPublic?: string;
-    university?: string;
-  },
-  @CurrentUser() currentUser: AuthUser,
-) {
-  const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
-  if (!user) throw new Error('User not found');
-  if (!file) throw new Error('No zip file provided');
-
-  let universityId = user.universityId;
-  if (body.university) {
-    const uniName = Array.isArray(body.university) ? body.university[0] : body.university;
-    const uni = await this.prisma.university.findFirst({
-      where: {
-        OR: [
-          { name: { equals: uniName, mode: 'insensitive' } },
-          { shortName: { equals: uniName, mode: 'insensitive' } },
-        ],
-      },
+  @UseInterceptors(
+    FileInterceptor('zipFile', { limits: { fileSize: 250 * 1024 * 1024 } }),
+  )
+  async bulkUpload(
+    @UploadedFile() file: Express.Multer.File,
+    @Body()
+    body: {
+      department?: string;
+      level?: string;
+      semester?: string;
+      isPublic?: string;
+      university?: string;
+    },
+    @CurrentUser() currentUser: AuthUser,
+  ) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: currentUser.sub },
     });
-    if (uni) universityId = uni.id;
-  }
-  if (!universityId) throw new Error('University not found. Please set your university in your profile.');
+    if (!user) throw new Error('User not found');
+    if (!file) throw new Error('No zip file provided');
 
-  return this.studyMaterialService.bulkUploadFromZip(file.buffer, {
-    userId: user.id,
-    universityId,
-    department: body.department,
-    level: body.level,
-    semester: body.semester,
-    isPublic: body.isPublic !== 'false',
-  });
-}
+    let universityId = user.universityId;
+    if (body.university) {
+      const uniName = Array.isArray(body.university)
+        ? body.university[0]
+        : body.university;
+      const uni = await this.prisma.university.findFirst({
+        where: {
+          OR: [
+            { name: { equals: uniName, mode: 'insensitive' } },
+            { shortName: { equals: uniName, mode: 'insensitive' } },
+          ],
+        },
+      });
+      if (uni) universityId = uni.id;
+    }
+    if (!universityId)
+      throw new Error(
+        'University not found. Please set your university in your profile.',
+      );
+
+    return this.studyMaterialService.bulkUploadFromZip(file.buffer, {
+      userId: user.id,
+      universityId,
+      department: body.department,
+      level: body.level,
+      semester: body.semester,
+      isPublic: body.isPublic !== 'false',
+    });
+  }
+
+  @Get('needs-review')
+  async getNeedsReview() {
+    return this.studyMaterialService.getNeedsReview();
+  }
+
+  @Patch(':id/resolve-review')
+  async resolveReview(
+    @Param('id') id: string,
+    @Body()
+    data: {
+      department?: string;
+      level?: string;
+      semester?: string;
+      faculty?: string;
+    },
+  ) {
+    return this.studyMaterialService.resolveReview(id, data);
+  }
 }

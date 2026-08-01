@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Patch, Param, Body, UseGuards, Header } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Param,
+  Body,
+  UseGuards,
+  Header,
+} from '@nestjs/common';
 import { UniversitiesService } from './universities.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
@@ -31,26 +40,33 @@ export class UniversitiesController {
   // Protected — create university
   @Post()
   @UseGuards(JwtAuthGuard)
-  create(@Body() body: {
-    name: string;
-    shortName?: string;
-    country?: string;
-    domain?: string;
-    logoUrl?: string;
-  }) {
+  create(
+    @Body()
+    body: {
+      name: string;
+      shortName?: string;
+      country?: string;
+      domain?: string;
+      logoUrl?: string;
+    },
+  ) {
     return this.universitiesService.create(body);
   }
 
   // Protected — update university
   @Patch(':id')
   @UseGuards(JwtAuthGuard)
-  update(@Param('id') id: string, @Body() body: {
-    name?: string;
-    shortName?: string;
-    domain?: string;
-    logoUrl?: string;
-    isVerified?: boolean;
-  }) {
+  update(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      name?: string;
+      shortName?: string;
+      domain?: string;
+      logoUrl?: string;
+      isVerified?: boolean;
+    },
+  ) {
     return this.universitiesService.update(id, body);
   }
 

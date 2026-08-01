@@ -1,4 +1,8 @@
-import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Genre } from '@prisma/client';
 import { CreateNovelDto, CreateEpisodeDto } from './dto/create-novel.dto';
@@ -18,9 +22,12 @@ export class NovelsService {
   }
 
   async addEpisode(novelId: string, authorId: string, dto: CreateEpisodeDto) {
-    const novel = await this.prisma.novel.findUnique({ where: { id: novelId } });
+    const novel = await this.prisma.novel.findUnique({
+      where: { id: novelId },
+    });
     if (!novel) throw new NotFoundException('Novel not found');
-    if (novel.authorId !== authorId) throw new ForbiddenException('Not your novel');
+    if (novel.authorId !== authorId)
+      throw new ForbiddenException('Not your novel');
 
     const lastEpisode = await this.prisma.episode.findFirst({
       where: { novelId },
@@ -42,7 +49,8 @@ export class NovelsService {
       where: { id: episodeId },
       include: { novel: { select: { id: true, title: true, authorId: true } } },
     });
-    if (!episode || !episode.isPublished) throw new NotFoundException('Episode not found');
+    if (!episode || !episode.isPublished)
+      throw new NotFoundException('Episode not found');
     return episode;
   }
 
@@ -78,7 +86,12 @@ export class NovelsService {
         episodes: {
           where: { isPublished: true },
           orderBy: { episodeNumber: 'asc' },
-          select: { id: true, title: true, episodeNumber: true, releasedAt: true },
+          select: {
+            id: true,
+            title: true,
+            episodeNumber: true,
+            releasedAt: true,
+          },
         },
       },
     });
@@ -97,11 +110,18 @@ export class NovelsService {
     };
   }
 
-  async upsertReview(novelId: string, userId: string, rating: number, comment?: string) {
+  async upsertReview(
+    novelId: string,
+    userId: string,
+    rating: number,
+    comment?: string,
+  ) {
     if (rating < 1 || rating > 5) {
       throw new ForbiddenException('Rating must be between 1 and 5');
     }
-    const novel = await this.prisma.novel.findUnique({ where: { id: novelId } });
+    const novel = await this.prisma.novel.findUnique({
+      where: { id: novelId },
+    });
     if (!novel) throw new NotFoundException('Novel not found');
 
     return this.prisma.novelReview.upsert({
@@ -115,7 +135,9 @@ export class NovelsService {
     return this.prisma.novelReview.findMany({
       where: { novelId },
       orderBy: { createdAt: 'desc' },
-      include: { user: { select: { id: true, displayName: true, photoURL: true } } },
+      include: {
+        user: { select: { id: true, displayName: true, photoURL: true } },
+      },
     });
   }
 }

@@ -1,6 +1,11 @@
 import {
-  Controller, Post, UseInterceptors,
-  UploadedFile, UploadedFiles, UseGuards, Query
+  Controller,
+  Post,
+  UseInterceptors,
+  UploadedFile,
+  UploadedFiles,
+  UseGuards,
+  Query,
 } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
@@ -31,7 +36,7 @@ export class UploadController {
     @Query('folder') folder: string = 'general',
   ) {
     const urls = await Promise.all(
-      files.map(file => this.uploadService.uploadFile(file, folder))
+      files.map((file) => this.uploadService.uploadFile(file, folder)),
     );
     return { urls };
   }

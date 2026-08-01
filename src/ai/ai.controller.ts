@@ -1,4 +1,11 @@
-import { Controller, Post, Body, UseGuards, UseInterceptors, UploadedFile } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  UseGuards,
+  UseInterceptors,
+  UploadedFile,
+} from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AiService } from './ai.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -10,7 +17,7 @@ import { Throttle } from '@nestjs/throttler';
 @UseGuards(JwtAuthGuard)
 @Throttle({ default: { limit: 15, ttl: 60_000 } })
 export class AiController {
-constructor(private readonly aiService: AiService) {}
+  constructor(private readonly aiService: AiService) {}
 
   @Post('quiz')
   @UseInterceptors(FileInterceptor('file'))
@@ -21,13 +28,25 @@ constructor(private readonly aiService: AiService) {}
   ) {
     const fileData = file ? file.buffer.toString('base64') : undefined;
     const fileMimeType = file ? file.mimetype : undefined;
-    return this.aiService.generateQuiz(body.text, body.count, body.difficulty, fileData, fileMimeType);
+    return this.aiService.generateQuiz(
+      body.text,
+      body.count,
+      body.difficulty,
+      fileData,
+      fileMimeType,
+    );
   }
 
   // Generate quiz from an existing library material
   @Post('quiz/from-material')
   async generateQuizFromMaterial(
-    @Body() body: { materialId: string; fileUrl?: string; count?: number; difficulty?: string },
+    @Body()
+    body: {
+      materialId: string;
+      fileUrl?: string;
+      count?: number;
+      difficulty?: string;
+    },
     @CurrentUser() _user: AuthUser,
   ) {
     return this.aiService.generateQuizFromMaterial(
@@ -59,7 +78,12 @@ constructor(private readonly aiService: AiService) {}
   ) {
     const fileData = file ? file.buffer.toString('base64') : undefined;
     const fileMimeType = file ? file.mimetype : undefined;
-    return this.aiService.summarize(body.text, body.style, fileData, fileMimeType);
+    return this.aiService.summarize(
+      body.text,
+      body.style,
+      fileData,
+      fileMimeType,
+    );
   }
 
   @Post('flashcards')

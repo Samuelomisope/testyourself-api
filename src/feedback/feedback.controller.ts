@@ -12,7 +12,8 @@ export class FeedbackController {
   @UseGuards(JwtAuthGuard)
   async create(
     @CurrentUser() user: AuthUser,
-    @Body() body: { rating: number; category: string; message: string; page?: string },
+    @Body()
+    body: { rating: number; category: string; message: string; page?: string },
   ) {
     const dbUser = await this.feedbackService['prisma'].user.findUnique({
       where: { id: user.sub },

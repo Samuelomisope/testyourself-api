@@ -124,6 +124,9 @@ model StudyMaterial {
   flashcardDecks FlashcardDeck[]
   university     University      @relation(fields: [universityId], references: [id])
   user           User            @relation(fields: [userId], references: [id])
+  needsReview Boolean @default(false)
+  isDeleted   Boolean   @default(false)
+  deletedAt   DateTime?
 }
 
 model MarketplaceItem {

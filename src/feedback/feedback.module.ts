@@ -4,7 +4,6 @@ import { FeedbackService } from './feedback.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { EmailModule } from '../email/email.module';
 
-
 @Module({
   imports: [PrismaModule, EmailModule],
   controllers: [FeedbackController],

@@ -16,10 +16,8 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const deviceInfo = req.headers['user-agent'];
-    const { accessToken, refreshToken, user } = await this.authService.loginWithGoogle(
-      idToken,
-      deviceInfo,
-    );
+    const { accessToken, refreshToken, user } =
+      await this.authService.loginWithGoogle(idToken, deviceInfo);
 
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
@@ -76,7 +74,15 @@ export class AuthController {
 
   @UseGuards(JwtAuthGuard)
   @Post('become-writer')
-  becomeWriter(@Req() req, @Body() dto: { penName: string; bio?: string; avatarUrl?: string }) {
-    return this.authService.becomeWriter(req.user.sub, dto.penName, dto.bio, dto.avatarUrl);
+  becomeWriter(
+    @Req() req,
+    @Body() dto: { penName: string; bio?: string; avatarUrl?: string },
+  ) {
+    return this.authService.becomeWriter(
+      req.user.sub,
+      dto.penName,
+      dto.bio,
+      dto.avatarUrl,
+    );
   }
 }

@@ -22,15 +22,36 @@ import { SignedUrlInterceptor } from './common/signed-url.interceptor';
 import { NovelsModule } from './novels/novels.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { LoggerModule } from 'nestjs-pino';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    LoggerModule.forRoot({
+      pinoHttp: {
+        level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
+        transport:
+          process.env.NODE_ENV !== 'production'
+            ? { target: 'pino-pretty', options: { singleLine: true } }
+            : undefined,
+        redact: {
+          paths: [
+            'req.headers.authorization',
+            'req.headers.cookie',
+            'res.headers["set-cookie"]',
+          ],
+          remove: true,
+        },
+        autoLogging: {
+          ignore: (req) => req.url === '/health',
+        },
+      },
+    }),
     ThrottlerModule.forRoot([
       {
         name: 'default',
         ttl: 60_000, // 1 minute window
-        limit: 100,  // generous global default; tighter limits set per-endpoint below
+        limit: 100, // generous global default; tighter limits set per-endpoint below
       },
     ]),
     PrismaModule,
@@ -49,7 +70,8 @@ import { AppService } from './app.service';
     NovelsModule,
   ],
   controllers: [SearchController, AppController],
-  providers: [PrismaService,
+  providers: [
+    PrismaService,
     AppService,
     {
       provide: APP_INTERCEPTOR,

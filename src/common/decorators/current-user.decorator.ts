@@ -1,7 +1,7 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 
 export interface AuthUser {
-  sub: string;   // Postgres User.id
+  sub: string; // Postgres User.id
   email: string;
 }
 

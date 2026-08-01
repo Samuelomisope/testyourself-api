@@ -5,7 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 export class UsersService {
   constructor(private prisma: PrismaService) {}
 
-async getRecentActivity(uid: string, type?: string, days = 7) {
+  async getRecentActivity(uid: string, type?: string, days = 7) {
     const user = await this.prisma.user.findUnique({ where: { id: uid } });
     if (!user) return [];
     const since = new Date();
@@ -19,7 +19,7 @@ async getRecentActivity(uid: string, type?: string, days = 7) {
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
-}
+  }
 
   async searchUsers(q: string) {
     return this.prisma.user.findMany({
@@ -30,7 +30,13 @@ async getRecentActivity(uid: string, type?: string, days = 7) {
         ],
         isBanned: false,
       },
-      select: { id: true, displayName: true, email: true, photoURL: true, chatSnapUsername: true },
+      select: {
+        id: true,
+        displayName: true,
+        email: true,
+        photoURL: true,
+        chatSnapUsername: true,
+      },
       take: 20,
     });
   }
@@ -42,16 +48,19 @@ async getRecentActivity(uid: string, type?: string, days = 7) {
     });
   }
 
-  async updateProfile(uid: string, data: {
-    displayName?: string;
-    photoURL?: string;
-    bio?: string;
-    faculty?: string;
-    department?: string;
-    universityId?: string;
-    chatSnapUsername?: string;
-    chatWallpaper?: string;
-  }) {
+  async updateProfile(
+    uid: string,
+    data: {
+      displayName?: string;
+      photoURL?: string;
+      bio?: string;
+      faculty?: string;
+      department?: string;
+      universityId?: string;
+      chatSnapUsername?: string;
+      chatWallpaper?: string;
+    },
+  ) {
     return this.prisma.user.update({
       where: { id: uid },
       data,
@@ -81,7 +90,12 @@ async getRecentActivity(uid: string, type?: string, days = 7) {
     };
   }
 
-  async logActivity(uid: string, type: string, description: string, href?: string) {
+  async logActivity(
+    uid: string,
+    type: string,
+    description: string,
+    href?: string,
+  ) {
     const user = await this.prisma.user.findUnique({ where: { id: uid } });
     if (!user) return;
     return this.prisma.activityLog.create({

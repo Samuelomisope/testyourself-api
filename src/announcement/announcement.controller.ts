@@ -18,7 +18,7 @@ export class AnnouncementController {
 
     for (const user of users) {
       await this.emailService.sendUpdateAnnouncement(user.email, body);
-      await new Promise(r => setTimeout(r, 200));
+      await new Promise((r) => setTimeout(r, 200));
     }
 
     return { sent: users.length };
@@ -26,8 +26,12 @@ export class AnnouncementController {
 
   @Post('broadcast/single')
   @UseGuards(JwtAuthGuard, AdminGuard)
-  async broadcastSingle(@Body() body: { email: string; title: string; description: string }) {
-    const user = await this.prisma.user.findUnique({ where: { email: body.email } });
+  async broadcastSingle(
+    @Body() body: { email: string; title: string; description: string },
+  ) {
+    const user = await this.prisma.user.findUnique({
+      where: { email: body.email },
+    });
     if (!user) throw new Error(`No user found with email ${body.email}`);
 
     await this.emailService.sendUpdateAnnouncement(body.email, body);

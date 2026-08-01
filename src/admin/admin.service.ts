@@ -4,10 +4,23 @@ import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class AdminService {
-  constructor(private readonly prisma: PrismaService, private readonly email: EmailService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly email: EmailService,
+  ) {}
 
   async getStats() {
-    const [users, materials, products, universities, reports, sellers, buyers, activeListings, soldListings] = await Promise.all([
+    const [
+      users,
+      materials,
+      products,
+      universities,
+      reports,
+      sellers,
+      buyers,
+      activeListings,
+      soldListings,
+    ] = await Promise.all([
       this.prisma.user.count(),
       this.prisma.studyMaterial.count(),
       this.prisma.marketplaceItem.count(),
@@ -28,7 +41,10 @@ export class AdminService {
     });
 
     return {
-      users, materials, products, universities,
+      users,
+      materials,
+      products,
+      universities,
       pendingReports: reports,
       topUniversities,
       marketplace: { sellers, buyers, activeListings, soldListings },
@@ -86,7 +102,9 @@ export class AdminService {
     return this.prisma.sellerProfile.findMany({
       orderBy: { createdAt: 'desc' },
       include: {
-        user: { select: { id: true, displayName: true, email: true, photoURL: true } },
+        user: {
+          select: { id: true, displayName: true, email: true, photoURL: true },
+        },
       },
     });
   }
@@ -144,48 +162,50 @@ export class AdminService {
   }
 
   async notifyInactiveUsers() {
-  const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-  const inactiveUsers = await this.prisma.user.findMany({
-    where: { lastActiveAt: { lt: sevenDaysAgo }, isBanned: false },
-    select: { email: true, displayName: true },
-  });
+    const inactiveUsers = await this.prisma.user.findMany({
+      where: { lastActiveAt: { lt: sevenDaysAgo }, isBanned: false },
+      select: { email: true, displayName: true },
+    });
 
-  for (const user of inactiveUsers) {
-    await this.email.sendReEngagementEmail(user.email, user.displayName);
+    for (const user of inactiveUsers) {
+      await this.email.sendReEngagementEmail(user.email, user.displayName);
+    }
+
+    return { sent: inactiveUsers.length };
   }
 
-  return { sent: inactiveUsers.length };
-}
+  async sendMessageToUser(userId: string, subject: string, message: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true, displayName: true },
+    });
 
-async sendMessageToUser(userId: string, subject: string, message: string) {
-  const user = await this.prisma.user.findUnique({
-    where: { id: userId },
-    select: { email: true, displayName: true },
-  });
+    if (!user) throw new NotFoundException(`User not found`);
 
-  if (!user) throw new NotFoundException(`User not found`);
-
-  await this.email.sendEmail(
-    user.email,
-    subject,
-    `
+    await this.email.sendEmail(
+      user.email,
+      subject,
+      `
     <div style="font-family: sans-serif; max-width: 500px; margin: auto;">
       <h2 style="color: #7c3aed;">Hey ${user.displayName}! 👋</h2>
       <p>${message}</p>
       <p style="margin-top:24px; color:#999; font-size:12px;">If this email landed in spam, please mark it as "Not Spam" to keep receiving updates from TestYourself.</p>
     </div>
-    `
-  );
+    `,
+    );
 
-  return { success: true, sentTo: user.email };
-}
+    return { success: true, sentTo: user.email };
+  }
 
-async getAllNovels() {
+  async getAllNovels() {
     return this.prisma.novel.findMany({
       include: {
-        author: { select: { id: true, displayName: true, penName: true, email: true } },
+        author: {
+          select: { id: true, displayName: true, penName: true, email: true },
+        },
         _count: { select: { episodes: true, reviews: true } },
       },
       orderBy: { createdAt: 'desc' },

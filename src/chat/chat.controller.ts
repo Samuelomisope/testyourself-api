@@ -1,5 +1,11 @@
 import {
-  Controller, Get, Post, Body, Param, Query, UseGuards
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Query,
+  UseGuards,
 } from '@nestjs/common';
 import { ChatService } from './chat.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -44,14 +50,15 @@ export class ChatController {
     @CurrentUser() user: AuthUser,
     @Body() body: { name: string; memberIds: string[] },
   ) {
-    return this.chatService.createCustomGroup(user.sub, body.name, body.memberIds);
+    return this.chatService.createCustomGroup(
+      user.sub,
+      body.name,
+      body.memberIds,
+    );
   }
 
   @Post('rooms/:roomId/join')
-  joinRoom(
-    @CurrentUser() user: AuthUser,
-    @Param('roomId') roomId: string,
-  ) {
+  joinRoom(@CurrentUser() user: AuthUser, @Param('roomId') roomId: string) {
     return this.chatService.joinGroupRoom(user.sub, roomId);
   }
 
@@ -70,10 +77,7 @@ export class ChatController {
   }
 
   @Post('rooms/:roomId/read')
-  markAsRead(
-    @CurrentUser() user: AuthUser,
-    @Param('roomId') roomId: string,
-  ) {
+  markAsRead(@CurrentUser() user: AuthUser, @Param('roomId') roomId: string) {
     return this.chatService.markAsRead(roomId, user.sub);
   }
 
@@ -89,10 +93,7 @@ export class ChatController {
 
   // NEW: Get all media (images, videos, audio, files) in a room
   @Get('rooms/:roomId/media')
-  getRoomMedia(
-    @CurrentUser() user: AuthUser,
-    @Param('roomId') roomId: string,
-  ) {
+  getRoomMedia(@CurrentUser() user: AuthUser, @Param('roomId') roomId: string) {
     return this.chatService.getRoomMedia(roomId, user.sub);
   }
 
@@ -117,7 +118,8 @@ export class ChatController {
   @Post('status')
   createStatus(
     @CurrentUser() user: AuthUser,
-    @Body() body: {
+    @Body()
+    body: {
       text?: string;
       mediaUrl?: string;
       mediaType?: string;

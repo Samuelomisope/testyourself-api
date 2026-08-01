@@ -1,4 +1,9 @@
-import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
+import {
+  CallHandler,
+  ExecutionContext,
+  Injectable,
+  NestInterceptor,
+} from '@nestjs/common';
 import { Observable, from } from 'rxjs';
 import { mergeMap } from 'rxjs/operators';
 import { UploadService } from '../upload/upload.service';
@@ -21,7 +26,8 @@ export class SignedUrlInterceptor implements NestInterceptor {
     return (
       value.includes('r2.cloudflarestorage.com') ||
       value.includes('wasabisys.com') ||
-      (!!process.env.R2_BUCKET_NAME && value.includes(process.env.R2_BUCKET_NAME))
+      (!!process.env.R2_BUCKET_NAME &&
+        value.includes(process.env.R2_BUCKET_NAME))
     );
   }
 
@@ -29,7 +35,11 @@ export class SignedUrlInterceptor implements NestInterceptor {
     try {
       return await this.uploadService.getSignedUrlForStoredRef(value);
     } catch (err) {
-      console.error('Failed to sign stored ref, returning original value:', value, err);
+      console.error(
+        'Failed to sign stored ref, returning original value:',
+        value,
+        err,
+      );
       return value;
     }
   }
@@ -50,7 +60,9 @@ export class SignedUrlInterceptor implements NestInterceptor {
     if (Array.isArray(value)) {
       if (parentKey && SIGNABLE_ARRAY_FIELDS.includes(parentKey)) {
         return Promise.all(
-          value.map((v) => (this.looksLikeStorageUrl(v) ? this.signString(v) : v)),
+          value.map((v) =>
+            this.looksLikeStorageUrl(v) ? this.signString(v) : v,
+          ),
         );
       }
       return Promise.all(value.map((v) => this.signDeep(v)));
@@ -59,8 +71,11 @@ export class SignedUrlInterceptor implements NestInterceptor {
     if (this.isPlainObject(value)) {
       const entries = await Promise.all(
         Object.entries(value).map(async ([k, v]) => {
-          if (SIGNABLE_STRING_FIELDS.includes(k) && this.looksLikeStorageUrl(v)) {
-            return [k, await this.signString(v as string)];
+          if (
+            SIGNABLE_STRING_FIELDS.includes(k) &&
+            this.looksLikeStorageUrl(v)
+          ) {
+            return [k, await this.signString(v)];
           }
           return [k, await this.signDeep(v, k)];
         }),

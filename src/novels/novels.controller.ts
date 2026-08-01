@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Body, Param, Query, UseGuards, Req } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  Req,
+} from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { WriterGuard } from './guards/writer.guard';
 import { NovelsService } from './novels.service';
@@ -42,7 +51,11 @@ export class NovelsController {
 
   @UseGuards(JwtAuthGuard, WriterGuard)
   @Post('novels/:id/episodes')
-  addEpisode(@Req() req, @Param('id') id: string, @Body() dto: CreateEpisodeDto) {
+  addEpisode(
+    @Req() req,
+    @Param('id') id: string,
+    @Body() dto: CreateEpisodeDto,
+  ) {
     return this.novelsService.addEpisode(id, req.user.sub, dto);
   }
 
@@ -53,7 +66,16 @@ export class NovelsController {
 
   @UseGuards(JwtAuthGuard)
   @Post('novels/:id/reviews')
-  upsertReview(@Req() req, @Param('id') id: string, @Body() dto: { rating: number; comment?: string }) {
-    return this.novelsService.upsertReview(id, req.user.sub, dto.rating, dto.comment);
+  upsertReview(
+    @Req() req,
+    @Param('id') id: string,
+    @Body() dto: { rating: number; comment?: string },
+  ) {
+    return this.novelsService.upsertReview(
+      id,
+      req.user.sub,
+      dto.rating,
+      dto.comment,
+    );
   }
 }

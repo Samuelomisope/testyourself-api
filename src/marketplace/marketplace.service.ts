@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -6,23 +10,28 @@ export class MarketplaceService {
   constructor(private prisma: PrismaService) {}
 
   // ── Helper: get DB user from Firebase UID ────────────────────────
- private async getDbUser(userId: string) {
-  const user = await this.prisma.user.findUnique({
-    where: { id: userId },
-  });
-  if (!user) throw new NotFoundException('User not found');
-  return user;
-}
+  private async getDbUser(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    return user;
+  }
 
   // ── Seller/Buyer Onboarding ──────────────────────────────────────
-  async createSellerProfile(firebaseUid: string, data: { bio?: string; chatSnapUsername?: string; whatsapp?: string }) {
-    const user = await this.getDbUser(firebaseUid);
-    return this.prisma.sellerProfile.upsert({
+async createSellerProfile(
+  firebaseUid: string,
+  data: { bio?: string; chatSnapUsername?: string; whatsapp?: string },
+) {
+  const user = await this.getDbUser(firebaseUid);
+  return this.prisma.runAsUser(user.id, (tx) =>
+    tx.sellerProfile.upsert({
       where: { userId: user.id },
       update: data,
       create: { userId: user.id, ...data },
-    });
-  }
+    }),
+  );
+}
 
   async createBuyerProfile(firebaseUid: string) {
     const user = await this.getDbUser(firebaseUid);
@@ -43,7 +52,15 @@ export class MarketplaceService {
     maxPrice?: number;
     universityId?: string;
   }) {
-    const { search, category, type, condition, minPrice, maxPrice, universityId } = filters;
+    const {
+      search,
+      category,
+      type,
+      condition,
+      minPrice,
+      maxPrice,
+      universityId,
+    } = filters;
 
     return this.prisma.marketplaceItem.findMany({
       where: {
@@ -52,12 +69,14 @@ export class MarketplaceService {
         ...(category && { category }),
         ...(type && { type: type as any }),
         ...(condition && { condition: condition as any }),
-        ...(minPrice || maxPrice ? {
-          price: {
-            ...(minPrice && { gte: minPrice }),
-            ...(maxPrice && { lte: maxPrice }),
-          }
-        } : {}),
+        ...(minPrice || maxPrice
+          ? {
+              price: {
+                ...(minPrice && { gte: minPrice }),
+                ...(maxPrice && { lte: maxPrice }),
+              },
+            }
+          : {}),
         ...(search && {
           OR: [
             { title: { contains: search, mode: 'insensitive' } },
@@ -79,7 +98,9 @@ export class MarketplaceService {
       include: {
         user: {
           select: {
-            id: true, displayName: true, photoURL: true,
+            id: true,
+            displayName: true,
+            photoURL: true,
             sellerProfile: true,
           },
         },
@@ -104,18 +125,24 @@ export class MarketplaceService {
     });
   }
 
-  async createListing(firebaseUid: string, data: {
-    title: string;
-    description: string;
-    price: number;
-    images: string[];
-    category?: string;
-    type?: string;
-    condition?: string;
-    tags?: string[];
-  }) {
+  async createListing(
+    firebaseUid: string,
+    data: {
+      title: string;
+      description: string;
+      price: number;
+      images: string[];
+      category?: string;
+      type?: string;
+      condition?: string;
+      tags?: string[];
+    },
+  ) {
     const user = await this.getDbUser(firebaseUid);
-    if (!user.universityId) throw new ForbiddenException('You must belong to a university to list items');
+    if (!user.universityId)
+      throw new ForbiddenException(
+        'You must belong to a university to list items',
+      );
 
     return this.prisma.marketplaceItem.create({
       data: {
@@ -135,76 +162,63 @@ export class MarketplaceService {
 
   async updateListing(id: string, firebaseUid: string, data: any) {
     const user = await this.getDbUser(firebaseUid);
-    const item = await this.prisma.marketplaceItem.findUnique({ where: { id } });
+    const item = await this.prisma.marketplaceItem.findUnique({
+      where: { id },
+    });
     if (!item) throw new NotFoundException('Listing not found');
-    if (item.userId !== user.id) throw new ForbiddenException('Not your listing');
+    if (item.userId !== user.id)
+      throw new ForbiddenException('Not your listing');
 
     return this.prisma.marketplaceItem.update({ where: { id }, data });
   }
 
   async deleteListing(id: string, firebaseUid: string) {
     const user = await this.getDbUser(firebaseUid);
-    const item = await this.prisma.marketplaceItem.findUnique({ where: { id } });
+    const item = await this.prisma.marketplaceItem.findUnique({
+      where: { id },
+    });
     if (!item) throw new NotFoundException('Listing not found');
-    if (item.userId !== user.id) throw new ForbiddenException('Not your listing');
+    if (item.userId !== user.id)
+      throw new ForbiddenException('Not your listing');
 
     return this.prisma.marketplaceItem.delete({ where: { id } });
   }
 
-  // ── Reviews ──────────────────────────────────────────────────────
-  async addReview(firebaseUid: string, itemId: string, data: { rating: number; comment?: string }) {
-    const user = await this.getDbUser(firebaseUid);
+ // ── Reviews ──────────────────────────────────────────────────────
+async addReview(
+  firebaseUid: string,
+  itemId: string,
+  data: { rating: number; comment?: string },
+) {
+  const user = await this.getDbUser(firebaseUid);
 
-    const review = await this.prisma.review.create({
-      data: { userId: user.id, itemId, rating: data.rating, comment: data.comment },
-    });
+  const review = await this.prisma.runAsUser(user.id, (tx) =>
+    tx.review.create({
+      data: {
+        userId: user.id,
+        itemId,
+        rating: data.rating,
+        comment: data.comment,
+      },
+    }),
+  );
 
-    // Recalculate seller rating
-    const item = await this.prisma.marketplaceItem.findUnique({
-      where: { id: itemId },
-      include: { user: { select: { id: true, displayName: true } } },
-    });
+  return review;
+}
 
-    if (item) {
-      const reviews = await this.prisma.review.findMany({
-        where: { item: { userId: item.userId } },
-      });
-      const avg = reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length;
-
-      // Update seller rating
-      await this.prisma.sellerProfile.updateMany({
-        where: { userId: item.userId },
-        data: { rating: avg },
-      });
-
-      // Notify seller
-      if (item.userId !== user.id) {
-        await this.prisma.notification.create({
-          data: {
-            userId: item.userId,
-            title: 'New Review',
-            body: `${user.displayName} gave your listing "${item.title}" a ${data.rating}-star review.${data.comment ? ` "${data.comment}"` : ''}`,
-            type: 'marketplace',
-          },
-        });
-      }
-    }
-
-    return review;
-  }
-
-  // ── Seller Profile ────────────────────────────────────────────────
-  async getSellerProfile(userId: string) {
-    return this.prisma.sellerProfile.findUnique({
-      where: { userId },
-      include: {
-        user: {
-          select: {
-            displayName: true, photoURL: true,
-            university: { select: { shortName: true } },
-          },
+// ── Seller Profile ────────────────────────────────────────────────
+async getSellerProfile(userId: string) {
+  return this.prisma.sellerProfile.findUnique({
+    where: { userId },
+    include: {
+      user: {
+        select: {
+          displayName: true,
+          photoURL: true,
+          university: { select: { shortName: true } },
         },
       },
-    });
-  }
+    },
+  });
+},
 }

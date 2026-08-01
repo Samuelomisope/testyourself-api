@@ -1,6 +1,13 @@
 import {
-  Controller, Get, Post, Patch, Delete,
-  Body, Param, Query, UseGuards
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Body,
+  Param,
+  Query,
+  UseGuards,
 } from '@nestjs/common';
 import { MarketplaceService } from './marketplace.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -14,7 +21,11 @@ export class MarketplaceController {
 
   // ── Onboarding ───────────────────────────────────────────────────
   @Post('seller/onboard')
-  createSellerProfile(@CurrentUser() user: AuthUser, @Body() body: { bio?: string; chatSnapUsername?: string; whatsapp?: string }) {
+  createSellerProfile(
+    @CurrentUser() user: AuthUser,
+    @Body()
+    body: { bio?: string; chatSnapUsername?: string; whatsapp?: string },
+  ) {
     return this.marketplaceService.createSellerProfile(user.sub, body);
   }
 
@@ -25,15 +36,18 @@ export class MarketplaceController {
 
   // ── Listings ─────────────────────────────────────────────────────
   @Get()
-  getListings(@Query() query: {
-    search?: string;
-    category?: string;
-    type?: string;
-    condition?: string;
-    minPrice?: string;
-    maxPrice?: string;
-    universityId?: string;
-  }) {
+  getListings(
+    @Query()
+    query: {
+      search?: string;
+      category?: string;
+      type?: string;
+      condition?: string;
+      minPrice?: string;
+      maxPrice?: string;
+      universityId?: string;
+    },
+  ) {
     return this.marketplaceService.getListings({
       ...query,
       minPrice: query.minPrice ? parseFloat(query.minPrice) : undefined,
@@ -57,11 +71,15 @@ export class MarketplaceController {
   }
 
   @Post()
-createListing(@CurrentUser() user: AuthUser, @Body() body: any) {
-  return this.marketplaceService.createListing(user.sub, body);
-}
+  createListing(@CurrentUser() user: AuthUser, @Body() body: any) {
+    return this.marketplaceService.createListing(user.sub, body);
+  }
   @Patch(':id')
-  updateListing(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: any) {
+  updateListing(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: any,
+  ) {
     return this.marketplaceService.updateListing(id, user.sub, body);
   }
 
@@ -72,7 +90,11 @@ createListing(@CurrentUser() user: AuthUser, @Body() body: any) {
 
   // ── Reviews ──────────────────────────────────────────────────────
   @Post(':id/reviews')
-  addReview(@CurrentUser() user: AuthUser, @Param('id') itemId: string, @Body() body: { rating: number; comment?: string }) {
+  addReview(
+    @CurrentUser() user: AuthUser,
+    @Param('id') itemId: string,
+    @Body() body: { rating: number; comment?: string },
+  ) {
     return this.marketplaceService.addReview(user.sub, itemId, body);
   }
 }

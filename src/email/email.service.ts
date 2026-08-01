@@ -38,11 +38,14 @@ export class EmailService {
         </a>
         <p style="margin-top:24px; color:#999; font-size:12px;">If this email landed in spam, please mark it as "Not Spam" to keep receiving updates from TestYourself.</p>
       </div>
-      `
+      `,
     );
   }
 
-  async sendUpdateAnnouncement(to: string, update: { title: string; description: string }) {
+  async sendUpdateAnnouncement(
+    to: string,
+    update: { title: string; description: string },
+  ) {
     return this.sendEmail(
       to,
       `📢 ${update.title}`,
@@ -55,7 +58,7 @@ export class EmailService {
         </a>
         <p style="margin-top:24px; color:#999; font-size:12px;">You're receiving this because you're registered on TestYourself.</p>
       </div>
-      `
+      `,
     );
   }
 }

@@ -36,13 +36,16 @@ export class UniversitiesService {
   }
 
   // Update a university
-  async update(id: string, data: {
-    name?: string;
-    shortName?: string;
-    domain?: string;
-    logoUrl?: string;
-    isVerified?: boolean;
-  }) {
+  async update(
+    id: string,
+    data: {
+      name?: string;
+      shortName?: string;
+      domain?: string;
+      logoUrl?: string;
+      isVerified?: boolean;
+    },
+  ) {
     return this.prisma.university.update({ where: { id }, data });
   }
 
@@ -50,7 +53,9 @@ export class UniversitiesService {
   async seedNigerianUniversities(universities: string[]) {
     const created: any[] = [];
     for (const name of universities) {
-      const exists = await this.prisma.university.findUnique({ where: { name } });
+      const exists = await this.prisma.university.findUnique({
+        where: { name },
+      });
       if (!exists) {
         const uni = await this.prisma.university.create({
           data: { name, country: 'Nigeria' },
@@ -58,10 +63,10 @@ export class UniversitiesService {
         created.push(uni);
       }
     }
-return { 
-  created: created.length, 
-  message: `${created.length} universities seeded`,
-};
+    return {
+      created: created.length,
+      message: `${created.length} universities seeded`,
+    };
   }
 
   // Get university stats

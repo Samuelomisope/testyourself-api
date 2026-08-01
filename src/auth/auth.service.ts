@@ -52,7 +52,10 @@ export class AuthService {
     return this.issueTokens(user, deviceInfo);
   }
 
-  private async issueTokens(user: { id: string; email: string }, deviceInfo?: string) {
+  private async issueTokens(
+    user: { id: string; email: string },
+    deviceInfo?: string,
+  ) {
     const accessToken = this.jwtService.sign(
       { sub: user.id, email: user.email },
       { expiresIn: '15m' },
@@ -85,13 +88,17 @@ export class AuthService {
     }
 
     const tokenHash = hashToken(refreshToken);
-    const stored = await this.prisma.refreshToken.findUnique({ where: { tokenHash } });
+    const stored = await this.prisma.refreshToken.findUnique({
+      where: { tokenHash },
+    });
 
     if (!stored || stored.revokedAt || stored.expiresAt < new Date()) {
       throw new UnauthorizedException('Session revoked or expired');
     }
 
-    const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+    });
     if (!user) throw new UnauthorizedException('User not found');
 
     return this.jwtService.sign(
@@ -126,7 +133,12 @@ export class AuthService {
     });
   }
 
-  async becomeWriter(userId: string, penName: string, bio?: string, avatarUrl?: string) {
+  async becomeWriter(
+    userId: string,
+    penName: string,
+    bio?: string,
+    avatarUrl?: string,
+  ) {
     return this.prisma.user.update({
       where: { id: userId },
       data: {
