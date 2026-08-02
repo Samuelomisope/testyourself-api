@@ -49,6 +49,7 @@ export class AuthService {
       });
     }
 
+    await this.updateStreak(user.id); 
     return this.issueTokens(user, deviceInfo);
   }
 
@@ -94,6 +95,12 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
     if (!user) throw new UnauthorizedException('User not found');
 
+     await this.updateStreak(user.id);
+  return this.jwtService.sign(
+    { sub: user.id, email: user.email },
+    { expiresIn: '15m' },
+  );
+
     return this.jwtService.sign(
       { sub: user.id, email: user.email },
       { expiresIn: '15m' },
@@ -138,4 +145,34 @@ export class AuthService {
       },
     });
   }
+
+  private async updateStreak(userId: string) {
+  const user = await this.prisma.user.findUnique({ where: { id: userId } });
+  if (!user) return;
+
+  const now = new Date();
+  const last = new Date(user.lastActiveAt);
+  const isSameDay = now.toDateString() === last.toDateString();
+
+  if (isSameDay) {
+    // Already counted today — just refresh lastActiveAt
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { lastActiveAt: now },
+    });
+    return;
+  }
+
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const isConsecutiveDay = yesterday.toDateString() === last.toDateString();
+
+  await this.prisma.user.update({
+    where: { id: userId },
+    data: {
+      streakCount: isConsecutiveDay ? user.streakCount + 1 : 1,
+      lastActiveAt: now,
+    },
+  });
+}
 }

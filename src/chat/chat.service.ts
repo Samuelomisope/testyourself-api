@@ -11,6 +11,13 @@ export class ChatService {
   if (!user) throw new NotFoundException('User not found');
   return user;
 }
+
+async setUserOnline(userId: string, isOnline: boolean) {
+  return this.prisma.user.update({
+    where: { id: userId },
+    data: { isOnline, lastActiveAt: new Date() },
+  });
+}
   // ── Direct Message Room ───────────────────────────────────────────
   async getOrCreateDM(firebaseUid: string, targetUserId: string) {
     const currentUser = await this.getDbUser(firebaseUid);
@@ -115,26 +122,42 @@ export class ChatService {
   }
 
   // ── Get My Rooms ──────────────────────────────────────────────────
-  async getMyRooms(firebaseUid: string) {
-    const user = await this.getDbUser(firebaseUid);
-    return this.prisma.chatRoom.findMany({
-      where: { members: { some: { userId: user.id } } },
-      include: {
-        members: {
-          include: {
-            user: { select: { id: true, displayName: true, photoURL: true } },
-          },
+ async getMyRooms(firebaseUid: string) {
+  const user = await this.getDbUser(firebaseUid);
+
+  const rooms = await this.prisma.chatRoom.findMany({
+    where: { members: { some: { userId: user.id } } },
+    include: {
+      members: {
+        include: {
+          user: { select: { id: true, displayName: true, photoURL: true } },
         },
-        messages: {
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-          include: { sender: { select: { displayName: true } } },
-        },
-        university: { select: { shortName: true, name: true } },
       },
-      orderBy: { createdAt: 'desc' },
-    });
-  }
+      messages: {
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+        include: { sender: { select: { displayName: true } } },
+      },
+      university: { select: { shortName: true, name: true } },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  const roomsWithUnread = await Promise.all(
+    rooms.map(async (room) => {
+      const unreadCount = await this.prisma.message.count({
+        where: {
+          roomId: room.id,
+          isRead: false,
+          senderId: { not: user.id },
+        },
+      });
+      return { ...room, unreadCount };
+    }),
+  );
+
+  return roomsWithUnread;
+}
 
   // ── Get Messages ──────────────────────────────────────────────────
   async getMessages(roomId: string, firebaseUid: string, cursor?: string) {

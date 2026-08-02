@@ -18,14 +18,36 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
 
+  // Track which userId belongs to which socket, so we know who
+  // disconnected when handleDisconnect fires (it only gives us the socket).
+  private socketUserMap = new Map<string, string>(); // socketId -> userId
+
   constructor(private readonly chatService: ChatService) {}
 
-  handleConnection(client: Socket) {
-    console.log(`Client connected: ${client.id}`);
+  async handleConnection(client: Socket) {
+    const userId = client.handshake.auth?.userId || client.handshake.query?.userId as string;
+    if (!userId) {
+      console.log(`Client connected without userId: ${client.id}`);
+      return;
+    }
+
+    this.socketUserMap.set(client.id, userId);
+    await this.chatService.setUserOnline(userId, true);
+    this.server.emit('userOnline', { userId });
+    console.log(`Client connected: ${client.id} (user ${userId})`);
   }
 
-  handleDisconnect(client: Socket) {
-    console.log(`Client disconnected: ${client.id}`);
+  async handleDisconnect(client: Socket) {
+    const userId = this.socketUserMap.get(client.id);
+    this.socketUserMap.delete(client.id);
+
+    if (userId) {
+      await this.chatService.setUserOnline(userId, false);
+      this.server.emit('userOffline', { userId });
+      console.log(`Client disconnected: ${client.id} (user ${userId})`);
+    } else {
+      console.log(`Client disconnected: ${client.id}`);
+    }
   }
 
   @SubscribeMessage('joinRoom')
