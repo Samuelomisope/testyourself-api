@@ -17,9 +17,11 @@ async function bootstrap() {
 
   app.enableCors({
     origin: [
-      'http://localhost:5173',
-      'http://localhost:3000',
-      'https://testyourself-nu.vercel.app',
+       'http://localhost:5173',
+    'http://localhost:3000',
+    'https://testyourself-nu.vercel.app',
+    'https://www.unilib.com.ng',
+    'https://unilib.com.ng',
     ],
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
