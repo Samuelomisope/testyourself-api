@@ -1,0 +1,62 @@
+config:
+  target: "https://testyourself-api-3.onrender.com"
+  phases:
+    - duration: 30
+      arrivalRate: 5
+      name: "Warm up"
+    - duration: 60
+      arrivalRate: 20
+      rampTo: 60
+      name: "Ramp to heavy load"
+    - duration: 120
+      arrivalRate: 60
+      name: "Sustained heavy load"
+    - duration: 60
+      arrivalRate: 100
+      name: "Stress spike"
+  defaults:
+    headers:
+      Authorization: "Bearer {{ $processEnvironment.TEST_JWT }}"
+      Content-Type: "application/json"
+
+scenarios:
+  - name: "Browse universities (public)"
+    weight: 20
+    flow:
+      - get:
+          url: "/universities"
+
+  - name: "Browse marketplace (public)"
+    weight: 20
+    flow:
+      - get:
+          url: "/marketplace"
+
+  - name: "View single marketplace item (public)"
+    weight: 15
+    flow:
+      - get:
+          url: "/marketplace"
+          capture:
+            - json: "$[0].id"
+              as: "itemId"
+      - get:
+          url: "/marketplace/{{ itemId }}"
+
+  - name: "Auth refresh (protected)"
+    weight: 15
+    flow:
+      - post:
+          url: "/auth/refresh"
+
+  - name: "Get my chat rooms (protected)"
+    weight: 15
+    flow:
+      - get:
+          url: "/chat/rooms"
+
+  - name: "Get my profile (protected)"
+    weight: 15
+    flow:
+      - get:
+          url: "/users/me"
