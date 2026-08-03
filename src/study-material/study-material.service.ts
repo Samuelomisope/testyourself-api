@@ -211,23 +211,24 @@ async getSignedFileUrl(fileUrl: string): Promise<string> {
   }) {
     const fileUrl = await this.uploadToR2(data.fileBuffer, data.originalName, data.fileType);
     const material = await this.prisma.studyMaterial.create({
-      data: {
-        title: data.title,
-        description: data.description,
-        fileUrl,
-        fileType: data.fileType,
-        fileSize: data.fileSize,
-        userId: data.userId,
-        universityId: data.universityId,
-        faculty: data.faculty,
-        department: data.department,
-        level: data.level,
-        semester: data.semester,
-        course: data.course,
-        isPublic: data.isPublic ?? true,
-      },
-      include: { user: { select: { displayName: true, photoURL: true } } },
-    });
+  data: {
+    title: data.title,
+    description: data.description,
+    fileUrl,
+    fileType: data.fileType,
+    fileSize: data.fileSize,
+    userId: data.userId,
+    universityId: data.universityId,
+    faculty: data.faculty,
+    department: data.department,
+    level: data.level,
+    semester: data.semester,
+    course: data.course,
+    isPublic: data.isPublic ?? true,
+    needsReview: !data.faculty || !data.department || !data.semester || !data.level,
+  },
+  include: { user: { select: { displayName: true, photoURL: true } } },
+});
     await this.prisma.activityLog.create({
       data: {
         userId: data.userId,
@@ -238,6 +239,33 @@ async getSignedFileUrl(fileUrl: string): Promise<string> {
     });
     return this.withSignedUrl(material);
   }
+
+  // service
+async resolveReview(id: string, data: {
+  department?: string;
+  level?: string;
+  semester?: string;
+  faculty?: string;
+}) {
+  const material = await this.prisma.studyMaterial.findUnique({ where: { id } });
+  if (!material) throw new NotFoundException('Study material not found');
+
+  const updated = await this.prisma.studyMaterial.update({
+    where: { id },
+    data: {
+      ...(data.department !== undefined && { department: data.department }),
+      ...(data.level !== undefined && { level: data.level }),
+      ...(data.semester !== undefined && { semester: data.semester }),
+      ...(data.faculty !== undefined && { faculty: data.faculty }),
+      needsReview: false,
+    },
+    include: {
+      user: { select: { displayName: true, photoURL: true } },
+      university: { select: { id: true, name: true, shortName: true } },
+    },
+  });
+  return this.withSignedUrl(updated);
+}
 
   // ── UPDATE metadata (owner only) ─────────────────────────────
   async update(id: string, userId: string, data: {
@@ -336,4 +364,16 @@ async getSignedFileUrl(fileUrl: string): Promise<string> {
     });
     return Promise.all(materials.map(m => this.withSignedUrl(m)));
   }
+
+  async findNeedsReview() {
+  const materials = await this.prisma.studyMaterial.findMany({
+    where: { needsReview: true, isDeleted: false },
+    orderBy: { createdAt: 'desc' },
+    include: {
+      user: { select: { displayName: true, photoURL: true } },
+      university: { select: { id: true, name: true, shortName: true } },
+    },
+  });
+  return Promise.all(materials.map(m => this.withSignedUrl(m)));
+}
 }
