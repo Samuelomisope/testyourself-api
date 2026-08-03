@@ -5,7 +5,7 @@ import { Resend } from 'resend';
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
   private resend = new Resend(process.env.RESEND_API_KEY);
-  private readonly from = 'TestYourself <onboarding@resend.dev>'; // update with your domain
+  private readonly from = 'UNILIB <noreply@unilib.com.ng>';
 
   async sendEmail(to: string, subject: string, html: string, text?: string) {
     try {
@@ -27,16 +27,16 @@ export class EmailService {
   async sendReEngagementEmail(to: string, displayName: string) {
     return this.sendEmail(
       to,
-      'We miss you on TestYourself! 👋',
+      'We miss you on UNILIB! 👋',
       `
       <div style="font-family: sans-serif; max-width: 500px; margin: auto;">
         <h2 style="color: #7c3aed;">Hey ${displayName}! 👋</h2>
-        <p>We noticed you haven't been active on <b>TestYourself</b> lately.</p>
+        <p>We noticed you haven't been active on <b>UNILIB</b> lately.</p>
         <p>Come back and explore new study materials, connect with your university community, and keep your streak alive!</p>
-        <a href="https://testyourself-nu.vercel.app" style="display:inline-block; margin-top:16px; padding: 12px 24px; background:#7c3aed; color:white; border-radius:8px; text-decoration:none; font-weight:bold;">
-          Go Back to TestYourself
+        <a href="https://unilib.com.ng" style="display:inline-block; margin-top:16px; padding: 12px 24px; background:#7c3aed; color:white; border-radius:8px; text-decoration:none; font-weight:bold;">
+          Go Back to UNILIB
         </a>
-        <p style="margin-top:24px; color:#999; font-size:12px;">If this email landed in spam, please mark it as "Not Spam" to keep receiving updates from TestYourself.</p>
+        <p style="margin-top:24px; color:#999; font-size:12px;">If this email landed in spam, please mark it as "Not Spam" to keep receiving updates from UNILIB.</p>
       </div>
       `
     );
@@ -48,12 +48,12 @@ export class EmailService {
       `📢 ${update.title}`,
       `
       <div style="font-family: sans-serif; max-width: 500px; margin: auto;">
-        <h2 style="color: #7c3aed;">TestYourself Update 🚀</h2>
+        <h2 style="color: #7c3aed;">UNILIB Update 🚀</h2>
         <p>${update.description}</p>
-        <a href="https://testyourself-nu.vercel.app/study" style="display:inline-block; margin-top:16px; padding: 12px 24px; background:#7c3aed; color:white; border-radius:8px; text-decoration:none; font-weight:bold;">
+        <a href="https://unilib.com.ng/study-material" style="display:inline-block; margin-top:16px; padding: 12px 24px; background:#7c3aed; color:white; border-radius:8px; text-decoration:none; font-weight:bold;">
           Check it out
         </a>
-        <p style="margin-top:24px; color:#999; font-size:12px;">You're receiving this because you're registered on TestYourself.</p>
+        <p style="margin-top:24px; color:#999; font-size:12px;">You're receiving this because you're registered on UNILIB.</p>
       </div>
       `
     );

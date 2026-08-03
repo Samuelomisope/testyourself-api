@@ -3,13 +3,18 @@ import Groq from 'groq-sdk';
 import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../prisma/prisma.service';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { createHash } from 'crypto';
+import { CacheService } from '../redis/cache.service';
 
 @Injectable()
 export class AiService {
   private groq: Groq;
   private anthropic: Anthropic;
 
-  constructor(private readonly prisma: PrismaService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cacheService: CacheService,
+  ) {
     this.groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
     this.anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   }
@@ -92,10 +97,9 @@ export class AiService {
       const block = response.content[0];
       return block.type === 'text' ? block.text : '';
     } catch (err) {
-      console.error('Claude failed, falling back to Groq:', err);
-      return this.askGroq(
-        system,
-        `${prompt}\n\n[Note: A PDF was provided but could not be processed. Answer based on the question only.]`,
+      console.error('Claude call failed:', err);
+      throw new BadRequestException(
+        'Scanned files are under construction and not currently supported. Please upload a text-based file or paste the content manually.',
       );
     }
   }
@@ -123,6 +127,13 @@ export class AiService {
     fileData?: string,
     fileMimeType?: string,
   ) {
+    const contentForHash = text || fileData || '';
+    const contentHash = createHash('sha256').update(contentForHash).digest('hex');
+    const cacheKey = `quiz:${contentHash}:${count}:${difficulty}`;
+
+    const cached = await this.cacheService.get(cacheKey);
+    if (cached) return cached;
+
     const isPdf = fileMimeType === 'application/pdf' || fileMimeType === 'pdf';
     const fileType = fileMimeType?.startsWith('video/') ? 'video' :
       isPdf ? 'PDF' :
@@ -143,7 +154,10 @@ ${text ? `Content:\n${text}` : ''}`;
     );
 
     const questions = JSON.parse(raw.replace(/```json|```/g, '').trim());
-    return { questions };
+    const result = { questions };
+
+    await this.cacheService.set(cacheKey, result, 86400);
+    return result;
   }
 
   // ─── Generate quiz from a library material ────────────────────────
@@ -153,6 +167,10 @@ ${text ? `Content:\n${text}` : ''}`;
     difficulty: string = 'Medium',
     signedUrl?: string,
   ) {
+    const cacheKey = `quiz:material:${materialId}:${count}:${difficulty}`;
+    const cached = await this.cacheService.get(cacheKey);
+    if (cached) return cached;
+
     const material = await this.prisma.studyMaterial.findUnique({
       where: { id: materialId },
     });
@@ -163,21 +181,17 @@ ${text ? `Content:\n${text}` : ''}`;
     if (!isPdf) throw new BadRequestException('Only PDF materials are supported for quiz generation.');
 
     const fetchUrl = signedUrl ?? material.fileUrl;
-
     const response = await fetch(fetchUrl);
-    console.log('Fetching URL:', fetchUrl);
-    console.log('Response status:', response.status);
 
     if (!response.ok) throw new BadRequestException('Could not fetch the study material file.');
 
     const buffer = Buffer.from(await response.arrayBuffer());
-    console.log('Buffer size:', buffer.length);
-
     const extractedText = await this.extractPdfText(buffer);
-    console.log('Extracted text length:', extractedText.length);
 
     if (extractedText && extractedText.length > 100) {
-      return this.generateQuiz(extractedText, count, difficulty);
+      const result = await this.generateQuiz(extractedText, count, difficulty);
+      await this.cacheService.set(cacheKey, result, 86400);
+      return result;
     } else {
       throw new BadRequestException(
         'This PDF appears to be scanned and has no readable text. Please upload a text-based PDF or paste the content manually.'
@@ -233,6 +247,14 @@ ${text ? `Notes:\n${text}` : ''}`;
       isPdf ? 'PDF' :
       fileMimeType?.startsWith('image/') ? 'image' : 'text';
 
+    // Build a stable cache key from the actual content + count
+    const contentForHash = text || fileData || '';
+    const contentHash = createHash('sha256').update(contentForHash).digest('hex');
+    const cacheKey = `flashcards:${contentHash}:${count}`;
+
+    const cached = await this.cacheService.get(cacheKey);
+    if (cached) return cached;
+
     const prompt = `Generate ${count} flashcards from this ${fileType}.
 Return ONLY a valid JSON array. Format:
 [{"front":"...","back":"..."}]
@@ -247,6 +269,9 @@ ${text ? `Text: ${text}` : ''}`;
     );
 
     const flashcards = JSON.parse(raw.replace(/```json|```/g, '').trim());
-    return { flashcards };
+    const result = { flashcards };
+
+    await this.cacheService.set(cacheKey, result, 86400); // cache 24h
+    return result;
   }
 }

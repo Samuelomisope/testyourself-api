@@ -22,20 +22,28 @@ import { APP_INTERCEPTOR } from '@nestjs/core';
 import { SignedUrlInterceptor } from './common/signed-url.interceptor';
 import { NovelsModule } from './novels/novels.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
+import Redis from 'ioredis';
 import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { RedisModule } from './redis/redis.module';
 
 @Module({
  imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
-    ThrottlerModule.forRoot([
-      {
-        name: 'default',
-        ttl: 60_000,
-        limit: 100,
-      },
-    ]),
+  ConfigModule.forRoot({ isGlobal: true }),
+  ThrottlerModule.forRootAsync({
+    useFactory: () => ({
+      throttlers: [
+        {
+          name: 'default',
+          ttl: 60_000,
+          limit: 100,
+        },
+      ],
+     storage: new ThrottlerStorageRedisService(new Redis(process.env.REDIS_URL!)),
+    }),
+  }),
     PrismaModule,
     AuthModule,
     UsersModule,
@@ -50,6 +58,7 @@ import { AppService } from './app.service';
     AnnouncementModule,
     FlashcardModule,
     NovelsModule,
+    RedisModule,
   ],
   controllers: [SearchController, AppController],
  providers: [PrismaService, 
