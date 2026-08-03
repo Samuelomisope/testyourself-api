@@ -123,12 +123,25 @@ export class StudyMaterialController {
     if (!user) return [];
     return this.studyMaterialService.findByUser(user.id);
   }
+@Get('needs-review')
+  async getNeedsReview() {
+    return this.studyMaterialService.findNeedsReview();
+  }
 
   @Get(':id')
   async findOne(@Param('id') id: string) {
     await this.studyMaterialService.incrementDownload(id);
     return this.studyMaterialService.findOne(id);
   }
+
+
+@Patch(':id/resolve-review')
+async resolveReview(
+  @Param('id') id: string,
+  @Body() body: { department?: string; level?: string; semester?: string; faculty?: string },
+) {
+  return this.studyMaterialService.resolveReview(id, body);
+}
 
   @Patch(':id')
   async update(
