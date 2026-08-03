@@ -1,8 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import Redis from 'ioredis';
 import { CacheService } from './cache.service';
-
-export const REDIS_CLIENT = 'REDIS_CLIENT';
+import { REDIS_CLIENT } from './redis.constants';
 
 @Global()
 @Module({
@@ -11,7 +10,7 @@ export const REDIS_CLIENT = 'REDIS_CLIENT';
       provide: REDIS_CLIENT,
       useFactory: () => {
         return new Redis(process.env.REDIS_URL!, {
-        maxRetriesPerRequest: 3,
+          maxRetriesPerRequest: 3,
         });
       },
     },
