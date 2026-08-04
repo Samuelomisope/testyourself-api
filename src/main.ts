@@ -5,8 +5,25 @@ import * as express from 'express';
 import { createClient } from 'redis';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
+import { ServerOptions } from 'socket.io';
 
 const cookieParser = require('cookie-parser');
+
+class RedisIoAdapter extends IoAdapter {
+  constructor(
+    app: any,
+    private readonly pubClient: any,
+    private readonly subClient: any,
+  ) {
+    super(app);
+  }
+
+  createIOServer(port: number, options?: ServerOptions): any {
+    const server = super.createIOServer(port, options);
+    server.adapter(createAdapter(this.pubClient, this.subClient));
+    return server;
+  }
+}
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -20,11 +37,11 @@ async function bootstrap() {
 
   app.enableCors({
     origin: [
-       'http://localhost:5173',
-    'http://localhost:3000',
-    'https://testyourself-nu.vercel.app',
-    'https://www.unilib.com.ng',
-    'https://unilib.com.ng',
+      'http://localhost:5173',
+      'http://localhost:3000',
+      'https://testyourself-nu.vercel.app',
+      'https://www.unilib.com.ng',
+      'https://unilib.com.ng',
     ],
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
@@ -37,12 +54,7 @@ async function bootstrap() {
   const subClient = pubClient.duplicate();
   await Promise.all([pubClient.connect(), subClient.connect()]);
 
-  const redisIoAdapter = new IoAdapter(app);
-  redisIoAdapter.createIOServer = (port, options) => {
-    const server = require('socket.io')(port, options);
-    server.adapter(createAdapter(pubClient, subClient));
-    return server;
-  };
+  const redisIoAdapter = new RedisIoAdapter(app, pubClient, subClient);
   app.useWebSocketAdapter(redisIoAdapter);
 
   await app.listen(3000);
