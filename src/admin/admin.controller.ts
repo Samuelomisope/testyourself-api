@@ -3,156 +3,130 @@ import {
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { CurrentUser } from '../common/decorators/current-user.decorator';
-import type { AuthUser } from '../common/decorators/current-user.decorator';
-
-const ADMIN_EMAILS = ['omisope34@gmail.com'];
-
-function requireAdmin(user: AuthUser) {
-  if (!ADMIN_EMAILS.includes(user.email)) {
-    throw new Error('Forbidden: Admin access only.');
-  }
-}
+import { AdminGuard } from '../auth/admin.guard'; // adjust the path to wherever admin.guard.ts actually lives
 
 @Controller('admin')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, AdminGuard)
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
   // ── Stats ────────────────────────────────────────────────────────────────
   @Get('stats')
-  async getStats(@CurrentUser() user: AuthUser) {
-    requireAdmin(user);
+  async getStats() {
     return this.adminService.getStats();
   }
 
   // ── Users ────────────────────────────────────────────────────────────────
   @Get('users')
-  async getAllUsers(@CurrentUser() user: AuthUser) {
-    requireAdmin(user);
+  async getAllUsers() {
     return this.adminService.getAllUsers();
   }
 
   @Delete('users/:id')
-  async deleteUser(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    requireAdmin(user);
+  async deleteUser(@Param('id') id: string) {
     return this.adminService.deleteUser(id);
   }
 
   // ── Study Materials ──────────────────────────────────────────────────────
   @Get('materials')
-  async getAllMaterials(@CurrentUser() user: AuthUser) {
-    requireAdmin(user);
+  async getAllMaterials() {
     return this.adminService.getAllMaterials();
   }
 
   @Delete('materials/:id')
-  async deleteMaterial(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    requireAdmin(user);
+  async deleteMaterial(@Param('id') id: string) {
     return this.adminService.deleteMaterial(id);
+  }
+
+  @Patch('materials/bulk')
+  async bulkUpdateMaterials(@Body() body: { ids: string[]; data: Record<string, any> }) {
+    return this.adminService.bulkUpdateMaterials(body.ids, body.data);
   }
 
   // ── Products ─────────────────────────────────────────────────────────────
   @Get('products')
-  async getAllProducts(@CurrentUser() user: AuthUser) {
-    requireAdmin(user);
+  async getAllProducts() {
     return this.adminService.getAllProducts();
   }
 
   @Delete('products/:id')
-  async deleteProduct(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    requireAdmin(user);
+  async deleteProduct(@Param('id') id: string) {
     return this.adminService.deleteProduct(id);
   }
 
   // ── Universities ─────────────────────────────────────────────────────────
   @Delete('universities/:id')
-  async deleteUniversity(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    requireAdmin(user);
+  async deleteUniversity(@Param('id') id: string) {
     return this.adminService.deleteUniversity(id);
   }
 
   // ── Reports ──────────────────────────────────────────────────────────────
   @Get('reports')
-  async getAllReports(@CurrentUser() user: AuthUser) {
-    requireAdmin(user);
+  async getAllReports() {
     return this.adminService.getAllReports();
   }
 
   @Patch('reports/:id/resolve')
-  async resolveReport(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    requireAdmin(user);
+  async resolveReport(@Param('id') id: string) {
     return this.adminService.resolveReport(id);
   }
 
   @Patch('users/:id/ban')
-async banUser(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-  requireAdmin(user);
-  return this.adminService.toggleBanUser(id);
-}
+  async banUser(@Param('id') id: string) {
+    return this.adminService.toggleBanUser(id);
+  }
 
-// ── Marketplace ───────────────────────────────────────────────────
+  // ── Marketplace ──────────────────────────────────────────────────────────
   @Get('sellers')
-  async getAllSellers(@CurrentUser() user: AuthUser) {
-    requireAdmin(user);
+  async getAllSellers() {
     return this.adminService.getAllSellers();
   }
 
   @Delete('sellers/:id')
-  async deleteSeller(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    requireAdmin(user);
+  async deleteSeller(@Param('id') id: string) {
     return this.adminService.deleteSeller(id);
   }
 
   @Get('reviews')
-  async getAllReviews(@CurrentUser() user: AuthUser) {
-    requireAdmin(user);
+  async getAllReviews() {
     return this.adminService.getAllReviews();
   }
 
   @Delete('reviews/:id')
-  async deleteReview(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    requireAdmin(user);
+  async deleteReview(@Param('id') id: string) {
     return this.adminService.deleteReview(id);
   }
 
   @Post('notify-inactive')
-@UseGuards(JwtAuthGuard)
-async notifyInactiveUsers() {
-  return this.adminService.notifyInactiveUsers();
-}
+  async notifyInactiveUsers() {
+    return this.adminService.notifyInactiveUsers();
+  }
 
-@Post('send-message')
-async sendMessageToUser(
-  @CurrentUser() user: AuthUser,
-  @Body() body: { userId: string; subject: string; message: string },
-) {
-  requireAdmin(user);
-  return this.adminService.sendMessageToUser(body.userId, body.subject, body.message);
-}
+  @Post('send-message')
+  async sendMessageToUser(
+    @Body() body: { userId: string; subject: string; message: string },
+  ) {
+    return this.adminService.sendMessageToUser(body.userId, body.subject, body.message);
+  }
 
-// ── Novels ──────────────────────────────────────────────────
+  // ── Novels ───────────────────────────────────────────────────────────────
   @Get('novels')
-  async getAllNovels(@CurrentUser() user: AuthUser) {
-    requireAdmin(user);
+  async getAllNovels() {
     return this.adminService.getAllNovels();
   }
 
   @Delete('novels/:id')
-  async deleteNovel(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    requireAdmin(user);
+  async deleteNovel(@Param('id') id: string) {
     return this.adminService.deleteNovel(id);
   }
 
   @Patch('novels/:id/toggle-hidden')
-  async toggleHideNovel(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    requireAdmin(user);
+  async toggleHideNovel(@Param('id') id: string) {
     return this.adminService.toggleHideNovel(id);
   }
 
   @Delete('episodes/:id')
-  async deleteEpisode(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    requireAdmin(user);
+  async deleteEpisode(@Param('id') id: string) {
     return this.adminService.deleteEpisode(id);
   }
 }

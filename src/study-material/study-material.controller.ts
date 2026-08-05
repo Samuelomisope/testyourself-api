@@ -220,4 +220,12 @@ async bulkUpload(
     isPublic: body.isPublic !== 'false',
   });
 }
+
+@Patch('bulk')
+@UseGuards(JwtAuthGuard)
+async bulkUpdate(@Body() dto: { ids: string[]; data: Partial<{
+  faculty: string; department: string; level: string; semester: string; course: string;
+}> }) {
+  return this.studyMaterialService.bulkUpdate(dto.ids, dto.data);
+}
 }
