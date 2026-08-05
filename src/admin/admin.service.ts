@@ -62,9 +62,16 @@ export class AdminService {
       },
     });
   }
-
-  async deleteMaterial(id: string) {
+async deleteMaterial(id: string) {
     return this.prisma.studyMaterial.delete({ where: { id } });
+  }
+
+  async bulkUpdateMaterials(ids: string[], data: Record<string, any>) {
+    if (!ids?.length) throw new NotFoundException('No materials selected');
+    return this.prisma.studyMaterial.updateMany({
+      where: { id: { in: ids } },
+      data,
+    });
   }
 
   async getAllProducts() {
