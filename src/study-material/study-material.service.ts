@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuidv4 } from 'uuid';
+import { BadRequestException } from '@nestjs/common';
 
 import * as unzipper from 'unzipper';
 import * as path from 'path';
@@ -375,5 +376,13 @@ async resolveReview(id: string, data: {
     },
   });
   return Promise.all(materials.map(m => this.withSignedUrl(m)));
+}
+
+async bulkUpdate(ids: string[], data: Record<string, any>) {
+  if (!ids?.length) throw new BadRequestException('No files selected');
+  return this.prisma.studyMaterial.updateMany({
+    where: { id: { in: ids } },
+    data,
+  });
 }
 }
