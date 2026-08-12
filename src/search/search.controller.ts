@@ -12,15 +12,21 @@ export class SearchController {
   @Get()
   async globalSearch(
     @Query('q') q: string,
+    @Query('page') page = '1',
+    @Query('limit') limit = '20',
     @CurrentUser() currentUser: AuthUser,
   ) {
-    if (!q || q.trim().length < 2) return { materials: [], users: [], products: [] };
+    if (!q || q.trim().length < 2) return { materials: [], users: [], marketplace: [], universities: [] };
+
+   const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const take = Math.min(50, Math.max(1, parseInt(limit, 10) || 20));
+    const skip = (pageNum - 1) * take;
 
     const user = await this.prisma.user.findUnique({
       where: { id: currentUser.sub },
     });
 
-    const [materials, users, marketplace] = await Promise.all([
+     const [materials, users, marketplace, universities] = await Promise.all([
       // Study materials — public + own private
       this.prisma.studyMaterial.findMany({
         where: {
@@ -31,7 +37,8 @@ export class SearchController {
           ],
           AND: [{ OR: [{ isPublic: true }, { userId: user?.id }] }],
         },
-        take: 10,
+         take,
+        skip,
         orderBy: { createdAt: 'desc' },
         include: {
           user: { select: { displayName: true, photoURL: true } },
@@ -47,7 +54,8 @@ export class SearchController {
             { email: { contains: q, mode: 'insensitive' } },
           ],
         },
-        take: 10,
+       take,
+        skip,
         select: { id: true, displayName: true, email: true, photoURL: true },
       }),
 
@@ -60,14 +68,27 @@ export class SearchController {
           ],
             
         },
-        take: 10,
+       take,
+        skip,
         orderBy: { createdAt: 'desc' },
         include: {
           user: { select: { displayName: true, photoURL: true } },
         },
       }).catch(() => []),
+
+       this.prisma.university.findMany({
+        where: {
+          OR: [
+            { name: { contains: q, mode: 'insensitive' } },
+            { shortName: { contains: q, mode: 'insensitive' } },
+          ],
+        },
+        take,
+        skip,
+        include: { _count: { select: { users: true } } },
+      }).catch(() => []),
     ]);
 
-    return { materials, users, marketplace };
+    return { materials, users, marketplace, universities };
   }
 }
