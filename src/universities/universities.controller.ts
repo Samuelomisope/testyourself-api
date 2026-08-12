@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Patch, Param, Body, UseGuards } from '@nestjs/common';
 import { UniversitiesService } from './universities.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AdminGuard } from '../auth/admin.guard';
 
 @Controller('universities')
 export class UniversitiesController {
@@ -27,7 +28,7 @@ export class UniversitiesController {
 
   // Protected — create university
   @Post()
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
   create(@Body() body: {
     name: string;
     shortName?: string;
@@ -40,7 +41,7 @@ export class UniversitiesController {
 
   // Protected — update university
   @Patch(':id')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
   update(@Param('id') id: string, @Body() body: {
     name?: string;
     shortName?: string;
@@ -53,7 +54,7 @@ export class UniversitiesController {
 
   // Protected — seed Nigerian universities
   @Post('seed/nigeria')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
   seed(@Body() body: { universities: string[] }) {
     return this.universitiesService.seedNigerianUniversities(body.universities);
   }
