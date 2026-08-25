@@ -13,6 +13,14 @@ export class UniversitiesController {
     return this.universitiesService.findAll();
   }
 
+  // Public — get one university by slug (e.g. "futa")
+  // Placed above `:id` so it doesn't collide — this is a two-segment
+  // path ("slug/futa"), `:id` only ever matches one segment.
+  @Get('slug/:slug')
+  findBySlug(@Param('slug') slug: string) {
+    return this.universitiesService.findBySlug(slug);
+  }
+
   // Public — get one university
   @Get(':id')
   findOne(@Param('id') id: string) {

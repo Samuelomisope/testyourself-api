@@ -82,6 +82,7 @@ export class StudyMaterialController {
     @Query('semester') semester?: string,
     @Query('course') course?: string,
     @Query('search') search?: string,
+    @Query('university') universitySlug?: string,
   ) {
     const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
     if (!user) return [];
@@ -93,25 +94,50 @@ export class StudyMaterialController {
         ...(level && { level }),
         ...(semester && { semester }),
         ...(course && { course }),
-        ...(search && {
-          OR: [
-            { title: { contains: search, mode: 'insensitive' } },
-            { description: { contains: search, mode: 'insensitive' } },
-            { faculty: { contains: search, mode: 'insensitive' } },
-            { department: { contains: search, mode: 'insensitive' } },
-            { course: { contains: search, mode: 'insensitive' } },
-          ],
-        }),
-        OR: [
-          { isPublic: true },
-          { userId: user.id },
+        ...(universitySlug && { university: { slug: universitySlug } }),
+        // Both OR clauses (search, visibility) combined under AND so
+        // neither one silently overwrites the other — a plain object
+        // literal can only hold one `OR` key, so a prior version of
+        // this query dropped the search filter whenever the visibility
+        // clause was present (i.e. always).
+        AND: [
+          ...(search
+            ? [{
+                OR: [
+                  { title: { contains: search, mode: 'insensitive' as const } },
+                  { description: { contains: search, mode: 'insensitive' as const } },
+                  { faculty: { contains: search, mode: 'insensitive' as const } },
+                  { department: { contains: search, mode: 'insensitive' as const } },
+                  { course: { contains: search, mode: 'insensitive' as const } },
+                ],
+              }]
+            : []),
+          {
+            OR: [
+              { isPublic: true },
+              { userId: user.id },
+            ],
+          },
         ],
       },
       orderBy: { createdAt: 'desc' },
       include: {
         user: { select: { displayName: true, photoURL: true } },
-        university: { select: { id: true, name: true, shortName: true } },
-      },
+        university: { select: { id: true, name: true, shortName: true, slug: true } },
+        courseRef: {
+          include: {
+            program: {
+              include: {
+                department: {
+                  include: {
+                    school: true,
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     });
 
     return Promise.all(materials.map(m => this.studyMaterialService.withSignedUrl(m)));
@@ -123,25 +149,12 @@ export class StudyMaterialController {
     if (!user) return [];
     return this.studyMaterialService.findByUser(user.id);
   }
-@Get('needs-review')
-  async getNeedsReview() {
-    return this.studyMaterialService.findNeedsReview();
-  }
 
   @Get(':id')
   async findOne(@Param('id') id: string) {
     await this.studyMaterialService.incrementDownload(id);
     return this.studyMaterialService.findOne(id);
   }
-
-
-@Patch(':id/resolve-review')
-async resolveReview(
-  @Param('id') id: string,
-  @Body() body: { department?: string; level?: string; semester?: string; faculty?: string },
-) {
-  return this.studyMaterialService.resolveReview(id, body);
-}
 
   @Patch(':id')
   async update(
@@ -180,52 +193,52 @@ async resolveReview(
   }
 
   @Post('bulk-upload')
-@UseInterceptors(FileInterceptor('zipFile', { limits: { fileSize: 250 * 1024 * 1024 } }))
-async bulkUpload(
-  @UploadedFile() file: Express.Multer.File,
-  @Body() body: {
-    department?: string;
-    level?: string;
-    semester?: string;
-    isPublic?: string;
-    university?: string;
-  },
-  @CurrentUser() currentUser: AuthUser,
-) {
-  const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
-  if (!user) throw new Error('User not found');
-  if (!file) throw new Error('No zip file provided');
+  @UseInterceptors(FileInterceptor('zipFile', { limits: { fileSize: 250 * 1024 * 1024 } }))
+  async bulkUpload(
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: {
+      department?: string;
+      level?: string;
+      semester?: string;
+      isPublic?: string;
+      university?: string;
+    },
+    @CurrentUser() currentUser: AuthUser,
+  ) {
+    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
+    if (!user) throw new Error('User not found');
+    if (!file) throw new Error('No zip file provided');
 
-  let universityId = user.universityId;
-  if (body.university) {
-    const uniName = Array.isArray(body.university) ? body.university[0] : body.university;
-    const uni = await this.prisma.university.findFirst({
-      where: {
-        OR: [
-          { name: { equals: uniName, mode: 'insensitive' } },
-          { shortName: { equals: uniName, mode: 'insensitive' } },
-        ],
-      },
+    let universityId = user.universityId;
+    if (body.university) {
+      const uniName = Array.isArray(body.university) ? body.university[0] : body.university;
+      const uni = await this.prisma.university.findFirst({
+        where: {
+          OR: [
+            { name: { equals: uniName, mode: 'insensitive' } },
+            { shortName: { equals: uniName, mode: 'insensitive' } },
+          ],
+        },
+      });
+      if (uni) universityId = uni.id;
+    }
+    if (!universityId) throw new Error('University not found. Please set your university in your profile.');
+
+    return this.studyMaterialService.bulkUploadFromZip(file.buffer, {
+      userId: user.id,
+      universityId,
+      department: body.department,
+      level: body.level,
+      semester: body.semester,
+      isPublic: body.isPublic !== 'false',
     });
-    if (uni) universityId = uni.id;
   }
-  if (!universityId) throw new Error('University not found. Please set your university in your profile.');
 
-  return this.studyMaterialService.bulkUploadFromZip(file.buffer, {
-    userId: user.id,
-    universityId,
-    department: body.department,
-    level: body.level,
-    semester: body.semester,
-    isPublic: body.isPublic !== 'false',
-  });
-}
-
-@Patch('bulk')
-@UseGuards(JwtAuthGuard)
-async bulkUpdate(@Body() dto: { ids: string[]; data: Partial<{
-  faculty: string; department: string; level: string; semester: string; course: string;
-}> }) {
-  return this.studyMaterialService.bulkUpdate(dto.ids, dto.data);
-}
+  @Patch('bulk')
+  @UseGuards(JwtAuthGuard)
+  async bulkUpdate(@Body() dto: { ids: string[]; data: Partial<{
+    faculty: string; department: string; level: string; semester: string; course: string;
+  }> }) {
+    return this.studyMaterialService.bulkUpdate(dto.ids, dto.data);
+  }
 }

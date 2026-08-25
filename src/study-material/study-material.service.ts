@@ -150,7 +150,7 @@ async getSignedFileUrl(fileUrl: string): Promise<string> {
             }
 
             const fileName = path.basename(entry.path);
-            await this.create({
+              await this.create({
               title: fileName.replace(/\.[^/.]+$/, ''),
               fileBuffer: buffer,
               originalName: fileName,
@@ -158,11 +158,11 @@ async getSignedFileUrl(fileUrl: string): Promise<string> {
               fileSize: buffer.length,
               userId: opts.userId,
               universityId: opts.universityId,
-              faculty: folderName,        // ← the folder name becomes the course code
+              faculty: folderName,        
               department: opts.department,
               level: opts.level,
               semester: opts.semester,
-              course: opts.semester,
+              course: folderName,
               isPublic: opts.isPublic,
             });
 
@@ -240,33 +240,6 @@ async getSignedFileUrl(fileUrl: string): Promise<string> {
     });
     return this.withSignedUrl(material);
   }
-
-  // service
-async resolveReview(id: string, data: {
-  department?: string;
-  level?: string;
-  semester?: string;
-  faculty?: string;
-}) {
-  const material = await this.prisma.studyMaterial.findUnique({ where: { id } });
-  if (!material) throw new NotFoundException('Study material not found');
-
-  const updated = await this.prisma.studyMaterial.update({
-    where: { id },
-    data: {
-      ...(data.department !== undefined && { department: data.department }),
-      ...(data.level !== undefined && { level: data.level }),
-      ...(data.semester !== undefined && { semester: data.semester }),
-      ...(data.faculty !== undefined && { faculty: data.faculty }),
-      needsReview: false,
-    },
-    include: {
-      user: { select: { displayName: true, photoURL: true } },
-      university: { select: { id: true, name: true, shortName: true } },
-    },
-  });
-  return this.withSignedUrl(updated);
-}
 
   // ── UPDATE metadata (owner only) ─────────────────────────────
   async update(id: string, userId: string, data: {
@@ -366,17 +339,6 @@ async resolveReview(id: string, data: {
     return Promise.all(materials.map(m => this.withSignedUrl(m)));
   }
 
-  async findNeedsReview() {
-  const materials = await this.prisma.studyMaterial.findMany({
-    where: { needsReview: true, isDeleted: false },
-    orderBy: { createdAt: 'desc' },
-    include: {
-      user: { select: { displayName: true, photoURL: true } },
-      university: { select: { id: true, name: true, shortName: true } },
-    },
-  });
-  return Promise.all(materials.map(m => this.withSignedUrl(m)));
-}
 
 async bulkUpdate(ids: string[], data: Record<string, any>) {
   if (!ids?.length) throw new BadRequestException('No files selected');

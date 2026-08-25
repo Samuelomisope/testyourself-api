@@ -1,10 +1,11 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
+import { StudyMaterialService } from '../study-material/study-material.service';
 
 @Injectable()
 export class AdminService {
-  constructor(private readonly prisma: PrismaService, private readonly email: EmailService) {}
+  constructor(private readonly prisma: PrismaService, private readonly email: EmailService, private readonly studyMaterialService: StudyMaterialService,) {}
 
   async getStats() {
     const [users, materials, products, universities, reports, sellers, buyers, activeListings, soldListings] = await Promise.all([
@@ -165,6 +166,35 @@ async deleteMaterial(id: string) {
 
   return { sent: inactiveUsers.length };
 }
+
+  async getMaterialsNeedingReview() {
+    const materials = await this.prisma.studyMaterial.findMany({
+      where: { needsReview: true, isDeleted: false },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        user: { select: { displayName: true, photoURL: true } },
+        university: { select: { id: true, name: true, shortName: true } },
+      },
+    });
+    return Promise.all(materials.map(m => this.studyMaterialService.withSignedUrl(m)));
+  }
+
+  // Resolve: assign a courseId and clear the flag
+  async resolveMaterialReview(id: string, courseId: string) {
+    return this.prisma.studyMaterial.update({
+      where: { id },
+      data: { courseId, needsReview: false },
+    });
+  }
+
+  // Dismiss: clear the flag without assigning a course
+  // (e.g. the title genuinely has no matchable course — reviewed and left as-is)
+  async dismissMaterialReview(id: string) {
+    return this.prisma.studyMaterial.update({
+      where: { id },
+      data: { needsReview: false },
+    });
+  }
 
 async sendMessageToUser(userId: string, subject: string, message: string) {
   const user = await this.prisma.user.findUnique({

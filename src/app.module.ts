@@ -28,6 +28,9 @@ import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { RedisModule } from './redis/redis.module';
+import { SchoolModule } from './school/school.module';
+import { DepartmentModule } from './department/department.module';
+import { ProgramModule } from './program/program.module';
 
 @Module({
  imports: [
@@ -59,6 +62,9 @@ import { RedisModule } from './redis/redis.module';
     FlashcardModule,
     NovelsModule,
     RedisModule,
+    SchoolModule,
+    DepartmentModule,
+    ProgramModule,
   ],
   controllers: [SearchController, AppController],
  providers: [PrismaService, 
