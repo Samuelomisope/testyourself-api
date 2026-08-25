@@ -43,6 +43,25 @@ export class AdminController {
     return this.adminService.bulkUpdateMaterials(body.ids, body.data);
   }
 
+    // ── Needs Review (Department-layer backfill triage) ────────────────────
+  @Get('materials/needs-review')
+  async getMaterialsNeedingReview() {
+    return this.adminService.getMaterialsNeedingReview();
+  }
+
+  @Patch('materials/:id/resolve-review')
+  async resolveMaterialReview(
+    @Param('id') id: string,
+    @Body() body: { courseId: string },
+  ) {
+    return this.adminService.resolveMaterialReview(id, body.courseId);
+  }
+
+  @Patch('materials/:id/dismiss-review')
+  async dismissMaterialReview(@Param('id') id: string) {
+    return this.adminService.dismissMaterialReview(id);
+  }
+
   // ── Products ─────────────────────────────────────────────────────────────
   @Get('products')
   async getAllProducts() {

@@ -23,7 +23,14 @@ model University {
   flashcardDecks   FlashcardDeck[]
   marketplaceItems MarketplaceItem[]
   studyMaterials   StudyMaterial[]
+  schools          School[]
   users            User[]
+  vision      String?  @db.Text
+  mission     String?  @db.Text
+  coreValues  String?  @db.Text
+  slug            String? @unique
+  establishedYear Int?
+  tagline         String? @db.Text
 }
 
 model User {
@@ -113,21 +120,108 @@ model StudyMaterial {
   fileSize       Int?
   userId         String
   universityId   String
-  faculty        String?
-  department     String?
+  faculty        String?         // DEPRECATED — kept for backward compat, prefer course.program.school
+  department     String?         // DEPRECATED
   isPublic       Boolean         @default(true)
   downloadCount  Int             @default(0)
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
-  level          String?
-  semester       String?
-  course         String?
+  level          String?         // DEPRECATED — prefer course.level
+  semester       String?         // DEPRECATED — prefer course.semester
+  course         String?         // DEPRECATED — prefer courseId relation
+  courseId       String?         // NEW — nullable during transition, make required after backfill
+  isDeleted      Boolean         @default(false)
+  needsReview    Boolean         @default(false)
+
   flashcardDecks FlashcardDeck[]
   university     University      @relation(fields: [universityId], references: [id])
   user           User            @relation(fields: [userId], references: [id])
-  isDeleted     Boolean   @default(false)
-  needsReview   Boolean   @default(false)
+  courseRef      Course?         @relation(fields: [courseId], references: [id])
 }
+
+model School {
+  id                    String     @id @default(uuid())
+  universityId          String
+  name                  String     // "School of Infrastructure, Minerals and Manufacturing Engineering"
+  code                  String     // "SIMME"
+  label                 String     @default("School")
+  admissionRequirement  String?    @db.Text
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+
+  university  University    @relation(fields: [universityId], references: [id])
+  staff       SchoolStaff[]
+  departments Department[]
+
+  @@unique([universityId, code]) // code unique per university, not globally
+}
+
+model SchoolStaff {
+  id        String   @id @default(uuid())
+  schoolId  String
+  name      String
+  role      String?  // "Dean", "Lecturer", "HOD"
+  createdAt DateTime @default(now())
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+}
+model Program {
+  id                     String      @id @default(cuid())
+  departmentId           String
+  department             Department  @relation(fields: [departmentId], references: [id])
+  name                   String
+  code                   String?
+  durationYears          Int?
+  graduationRequirement  String?     @db.Text
+  createdAt              DateTime    @default(now())
+  updatedAt              DateTime    @updatedAt
+
+  courses                Course[]
+  crossListedCourses ProgramCourse[]
+}
+
+model ProgramCourse {
+  id        String   @id @default(cuid())
+  programId String
+  program   Program  @relation(fields: [programId], references: [id])
+  courseId  String
+  course    Course   @relation(fields: [courseId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([programId, courseId])
+}
+model Department {
+  id        String   @id @default(cuid())
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id])
+  name      String   // e.g. "Mining Engineering"
+  code      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  programs  Program[]
+
+  @@unique([schoolId, name])
+}
+
+model Course {
+  id         String   @id @default(uuid())
+  programId  String
+  code       String   // "GNS 106"
+  title      String
+  synopsis   String?  @db.Text
+  level      String?  // "100", "200" — matches StudyMaterial.level type
+  semester   String?  // matches StudyMaterial.semester type
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  program        Program         @relation(fields: [programId], references: [id], onDelete: Cascade)
+  studyMaterials StudyMaterial[]
+  crossListedIn ProgramCourse[]
+
+  @@unique([programId, code])
+}
+
 
 model MarketplaceItem {
   id           String        @id @default(uuid())

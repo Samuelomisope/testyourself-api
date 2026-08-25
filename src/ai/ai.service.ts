@@ -63,7 +63,7 @@ export class AiService {
     userContent.push({ type: 'text', text: prompt });
 
     const response = await this.groq.chat.completions.create({
-      model: imageData ? 'meta-llama/llama-4-scout-17b-16e-instruct' : 'llama-3.3-70b-versatile',
+      model: imageData ? 'qwen/qwen3.6-27b' : 'openai/gpt-oss-120b',
       max_tokens: 2000,
       messages: [
         { role: 'system', content: system },

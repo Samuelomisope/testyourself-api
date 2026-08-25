@@ -24,7 +24,6 @@ class RedisIoAdapter extends IoAdapter {
     return server;
   }
 }
-
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.use(express.json({ limit: '50mb' }));
@@ -48,14 +47,25 @@ async function bootstrap() {
     credentials: true,
   });
 
-  // Redis-backed Socket.io adapter — lets WebSocket connections work
-  // correctly if this app ever scales to multiple instances.
-  const pubClient = createClient({ url: process.env.REDIS_URL });
-  const subClient = pubClient.duplicate();
-  await Promise.all([pubClient.connect(), subClient.connect()]);
+  // Redis-backed Socket.io adapter — lets WebSocket connections scale
+  // across multiple instances. Non-fatal: if Redis is unreachable
+  // (e.g. local dev with no Redis running), the app still boots and
+  // Socket.io falls back to its default in-memory adapter — fine for
+  // a single instance, just won't work correctly if you ever scale
+  // to multiple server instances without Redis.
+  try {
+    const pubClient = createClient({ url: process.env.REDIS_URL, socket: { connectTimeout: 5000 } });
+    const subClient = pubClient.duplicate();
+    pubClient.on('error', (err) => console.error('Redis pub client error:', err.message));
+    subClient.on('error', (err) => console.error('Redis sub client error:', err.message));
+    await Promise.all([pubClient.connect(), subClient.connect()]);
 
-  const redisIoAdapter = new RedisIoAdapter(app, pubClient, subClient);
-  app.useWebSocketAdapter(redisIoAdapter);
+    const redisIoAdapter = new RedisIoAdapter(app, pubClient, subClient);
+    app.useWebSocketAdapter(redisIoAdapter);
+    console.log('Redis connected — Socket.io using Redis adapter.');
+  } catch (err) {
+    console.warn('Redis unavailable, continuing without Redis adapter:', err.message);
+  }
 
   await app.listen(3000);
   console.log('Server running on http://localhost:3000');
