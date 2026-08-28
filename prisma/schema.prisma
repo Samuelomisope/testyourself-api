@@ -31,6 +31,30 @@ model University {
   slug            String? @unique
   establishedYear Int?
   tagline         String? @db.Text
+  news            UniversityNews[]
+  sourceUrl       String?
+}
+
+enum NewsStatus {
+  DRAFT
+  PUBLISHED
+}
+
+model UniversityNews {
+  id            String     @id @default(cuid())
+  universityId  String
+  university    University @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  title         String
+  excerpt       String     @db.Text
+  body          String     @db.Text
+  coverImageUrl String?
+  sourceUrl     String?
+  status        NewsStatus @default(PUBLISHED)
+  publishedAt   DateTime   @default(now())
+  createdAt     DateTime   @default(now())
+  createdBy     String?
+
+  @@index([universityId, status, publishedAt])
 }
 
 model User {
