@@ -16,6 +16,12 @@ export class AdminController {
     return this.adminService.getStats();
   }
 
+  // ── Analytics ────────────────────────────────────────────────────────────
+  @Get('analytics')
+  async getAnalytics() {
+    return this.adminService.getAnalytics();
+  }
+
   // ── Users ────────────────────────────────────────────────────────────────
   @Get('users')
   async getAllUsers() {
@@ -105,6 +111,15 @@ export class AdminController {
   async deleteSeller(@Param('id') id: string) {
     return this.adminService.deleteSeller(id);
   }
+  @Get('buyers')
+async getAllBuyers() {
+  return this.adminService.getAllBuyers();
+}
+
+@Delete('buyers/:id')
+async deleteBuyer(@Param('id') id: string) {
+  return this.adminService.deleteBuyer(id);
+}
 
   @Get('reviews')
   async getAllReviews() {
@@ -120,6 +135,18 @@ export class AdminController {
   async notifyInactiveUsers() {
     return this.adminService.notifyInactiveUsers();
   }
+
+  @Post('broadcast')
+async broadcastToAll(@Body() body: { title: string; description: string }) {
+  return this.adminService.broadcastToAll(body.title, body.description);
+}
+
+@Post('broadcast/single')
+async broadcastToSingle(
+  @Body() body: { email: string; title: string; description: string },
+) {
+  return this.adminService.broadcastToOne(body.email, body.title, body.description);
+}
 
   @Post('send-message')
   async sendMessageToUser(

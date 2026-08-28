@@ -114,6 +114,7 @@ async function main() {
     if (!futa.coreValues) data.coreValues = FUTA_CONTENT.coreValues;
     if (!futa.establishedYear) data.establishedYear = FUTA_CONTENT.establishedYear;
     if (!futa.tagline) data.tagline = FUTA_CONTENT.tagline;
+    if (!futa.sourceUrl) data.sourceUrl = FUTA_CONTENT.sourceUrl;
 
     if (Object.keys(data).length === 0) {
       console.log('FUTA content already fully seeded — nothing to do.');

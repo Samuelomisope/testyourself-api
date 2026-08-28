@@ -36,6 +36,60 @@ export class AdminService {
     };
   }
 
+  // ── Analytics ──────────────────────────────────────────────────────────
+  // Buckets are computed in JS rather than via a raw SQL date_trunc query,
+  // since datasets at this stage are small enough that this is simpler and
+  // avoids a raw-SQL dependency on Postgres-specific syntax.
+  private bucketByDay(rows: { createdAt: Date }[]) {
+    const buckets: Record<string, number> = {};
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      buckets[d.toISOString().slice(0, 10)] = 0;
+    }
+    rows.forEach((r) => {
+      const key = r.createdAt.toISOString().slice(0, 10);
+      if (key in buckets) buckets[key]++;
+    });
+    return Object.entries(buckets).map(([date, count]) => ({ date, count }));
+  }
+
+  async getAnalytics() {
+    const since = new Date();
+    since.setDate(since.getDate() - 30);
+
+    const [newUsers, newMaterials, newListings, allUsers] = await Promise.all([
+      this.prisma.user.findMany({
+        where: { createdAt: { gte: since } },
+        select: { createdAt: true },
+      }),
+      this.prisma.studyMaterial.findMany({
+        where: { createdAt: { gte: since } },
+        select: { createdAt: true },
+      }),
+      this.prisma.marketplaceItem.findMany({
+        where: { createdAt: { gte: since } },
+        select: { createdAt: true },
+      }),
+      this.prisma.user.findMany({
+        select: { lastActiveAt: true },
+      }),
+    ]);
+
+    const now = Date.now();
+    const DAY = 24 * 60 * 60 * 1000;
+    const dau = allUsers.filter((u) => u.lastActiveAt && now - new Date(u.lastActiveAt).getTime() < DAY).length;
+    const wau = allUsers.filter((u) => u.lastActiveAt && now - new Date(u.lastActiveAt).getTime() < 7 * DAY).length;
+    const mau = allUsers.filter((u) => u.lastActiveAt && now - new Date(u.lastActiveAt).getTime() < 30 * DAY).length;
+
+    return {
+      signups: this.bucketByDay(newUsers),
+      materialUploads: this.bucketByDay(newMaterials),
+      listings: this.bucketByDay(newListings),
+      activity: { dau, wau, mau },
+    };
+  }
+
   async getAllUsers() {
     return this.prisma.user.findMany({
       orderBy: { createdAt: 'desc' },
@@ -102,6 +156,21 @@ async deleteMaterial(id: string) {
   async deleteSeller(id: string) {
     return this.prisma.sellerProfile.delete({ where: { id } });
   }
+
+  async getAllBuyers() {
+  return this.prisma.buyerProfile.findMany({
+    orderBy: { createdAt: 'desc' },
+    include: {
+      user: {
+        select: { id: true, displayName: true, email: true, photoURL: true, university: { select: { shortName: true } } },
+      },
+    },
+  });
+}
+
+async deleteBuyer(id: string) {
+  return this.prisma.buyerProfile.delete({ where: { id } });
+}
 
   async getAllReviews() {
     return this.prisma.review.findMany({
@@ -245,4 +314,47 @@ async getAllNovels() {
       data: { isHidden: !novel.isHidden },
     });
   }
+
+  private buildAnnouncementHtml(displayName: string, description: string) {
+  return `
+    <div style="font-family: sans-serif; max-width: 500px; margin: auto;">
+      <h2 style="color: #7c3aed;">Hey ${displayName || 'there'}! 👋</h2>
+      <p>${description}</p>
+      <p style="margin-top:24px; color:#999; font-size:12px;">If this email landed in spam, please mark it as "Not Spam" to keep receiving updates from TestYourself.</p>
+    </div>
+  `;
+}
+
+async broadcastToAll(title: string, description: string) {
+  const users = await this.prisma.user.findMany({
+    where: { isBanned: false },
+    select: { email: true, displayName: true },
+  });
+
+  let sent = 0;
+  for (const user of users) {
+    try {
+      await this.email.sendEmail(user.email, title, this.buildAnnouncementHtml(user.displayName, description));
+      sent++;
+    } catch (err) {
+      // one bad address shouldn't kill the whole broadcast — log and keep going
+      console.error(`Broadcast failed for ${user.email}:`, err);
+    }
+  }
+
+  return { sent, total: users.length };
+}
+
+async broadcastToOne(email: string, title: string, description: string) {
+  const user = await this.prisma.user.findUnique({
+    where: { email },
+    select: { email: true, displayName: true },
+  });
+
+  if (!user) throw new NotFoundException(`No user found with email ${email}`);
+
+  await this.email.sendEmail(user.email, title, this.buildAnnouncementHtml(user.displayName, description));
+
+  return { success: true, sentTo: user.email };
+}
 }

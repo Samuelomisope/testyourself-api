@@ -3,6 +3,7 @@ import { FeedbackService } from './feedback.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthUser } from '../common/decorators/current-user.decorator';
+import { AdminGuard } from '../auth/admin.guard';
 
 @Controller('feedback')
 export class FeedbackController {
@@ -21,7 +22,7 @@ export class FeedbackController {
   }
 
   @Get()
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
   async findAll() {
     return this.feedbackService.findAll();
   }
