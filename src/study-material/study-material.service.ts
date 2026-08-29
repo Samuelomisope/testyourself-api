@@ -347,4 +347,31 @@ async bulkUpdate(ids: string[], data: Record<string, any>) {
     data,
   });
 }
+
+async findNeedsReview() {
+  const materials = await this.prisma.studyMaterial.findMany({
+    where: { needsReview: true },
+    orderBy: { createdAt: 'desc' },
+    include: { user: { select: { displayName: true, photoURL: true } } },
+  });
+  return Promise.all(materials.map(m => this.withSignedUrl(m)));
+}
+
+async resolveReview(id: string, data: {
+  department: string;
+  level: string;
+  semester: string;
+  faculty: string; // frontend uses this field for course code, per ReviewRow's "faculty" state key
+}) {
+  return this.prisma.studyMaterial.update({
+    where: { id },
+    data: {
+      department: data.department,
+      level: data.level,
+      semester: data.semester,
+      faculty: data.faculty,
+      needsReview: false,
+    },
+  });
+}
 }

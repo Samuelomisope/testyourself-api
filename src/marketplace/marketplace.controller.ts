@@ -75,4 +75,9 @@ createListing(@CurrentUser() user: AuthUser, @Body() body: any) {
   addReview(@CurrentUser() user: AuthUser, @Param('id') itemId: string, @Body() body: { rating: number; comment?: string }) {
     return this.marketplaceService.addReview(user.sub, itemId, body);
   }
+
+  @Get('seller/:userId/reviews')
+getSellerReviews(@Param('userId') userId: string) {
+  return this.marketplaceService.getSellerReviews(userId);
+}
 }
