@@ -16,7 +16,10 @@ export class StudyMaterialController {
     private readonly studyMaterialService: StudyMaterialService,
     private readonly prisma: PrismaService,
   ) {}
-
+  @Get('needs-review')
+async findNeedsReview() {
+  return this.studyMaterialService.findNeedsReview();
+}
   @Post('upload')
   @UseInterceptors(FileInterceptor('file'))
   async upload(
@@ -241,4 +244,14 @@ export class StudyMaterialController {
   }> }) {
     return this.studyMaterialService.bulkUpdate(dto.ids, dto.data);
   }
+
+
+
+@Patch(':id/resolve-review')
+async resolveReview(
+  @Param('id') id: string,
+  @Body() body: { department: string; level: string; semester: string; faculty: string },
+) {
+  return this.studyMaterialService.resolveReview(id, body);
+}
 }

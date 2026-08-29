@@ -207,4 +207,15 @@ export class MarketplaceService {
       },
     });
   }
+
+  async getSellerReviews(sellerId: string) {
+  return this.prisma.review.findMany({
+    where: { item: { userId: sellerId } },
+    include: {
+      user: { select: { id: true, displayName: true, photoURL: true } },
+      item: { select: { id: true, title: true } },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+}
 }
