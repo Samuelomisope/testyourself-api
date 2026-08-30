@@ -26,11 +26,21 @@ export class UniversitiesService {
 
   // Get one university by slug (e.g. "futa") — for public-facing pages
   // like the university welcome page, keyed on slug rather than id.
-  async findBySlug(slug: string) {
-    return this.prisma.university.findUnique({
-      where: { slug },
-    });
-  }
+ async findBySlug(slug: string) {
+  return this.prisma.university.findUnique({
+    where: { slug },
+    include: {
+      schools: {
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          admissionRequirement: true,
+        },
+      },
+    },
+  });
+}
 
   // Create a university (super admin only)
   async create(data: {
