@@ -1,10 +1,12 @@
 import {
   Controller, Get, Post, Patch, Delete, Param, Query,
-  UseGuards, UseInterceptors, UploadedFile, Body
+  UseGuards, UseInterceptors, UploadedFile, Body,
+  BadRequestException, NotFoundException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { StudyMaterialService } from './study-material.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AdminGuard } from '../auth/admin.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthUser } from '../common/decorators/current-user.decorator';
 import { PrismaService } from '../prisma/prisma.service';
@@ -16,10 +18,13 @@ export class StudyMaterialController {
     private readonly studyMaterialService: StudyMaterialService,
     private readonly prisma: PrismaService,
   ) {}
+
   @Get('needs-review')
-async findNeedsReview() {
-  return this.studyMaterialService.findNeedsReview();
-}
+  @UseGuards(AdminGuard)
+  async findNeedsReview() {
+    return this.studyMaterialService.findNeedsReview();
+  }
+
   @Post('upload')
   @UseInterceptors(FileInterceptor('file'))
   async upload(
@@ -38,9 +43,9 @@ async findNeedsReview() {
     @CurrentUser() currentUser: AuthUser,
   ) {
     const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
-    if (!user) throw new Error('User not found');
-    if (!file) throw new Error('No file provided');
-    if (file.size > 100 * 1024 * 1024) throw new Error('File too large. Maximum size is 100MB.');
+    if (!user) throw new NotFoundException('User not found');
+    if (!file) throw new BadRequestException('No file provided');
+    if (file.size > 100 * 1024 * 1024) throw new BadRequestException('File too large. Maximum size is 100MB.');
 
     let universityId = user.universityId;
     if (body.university) {
@@ -56,7 +61,7 @@ async findNeedsReview() {
       if (uni) universityId = uni.id;
     }
 
-    if (!universityId) throw new Error('University not found. Please set your university in your profile.');
+    if (!universityId) throw new BadRequestException('University not found. Please set your university in your profile.');
 
     return this.studyMaterialService.create({
       title: body.title,
@@ -98,11 +103,7 @@ async findNeedsReview() {
         ...(semester && { semester }),
         ...(course && { course }),
         ...(universitySlug && { university: { slug: universitySlug } }),
-        // Both OR clauses (search, visibility) combined under AND so
-        // neither one silently overwrites the other — a plain object
-        // literal can only hold one `OR` key, so a prior version of
-        // this query dropped the search filter whenever the visibility
-        // clause was present (i.e. always).
+      
         AND: [
           ...(search
             ? [{
@@ -152,11 +153,12 @@ async findNeedsReview() {
     if (!user) return [];
     return this.studyMaterialService.findByUser(user.id);
   }
-
   @Get(':id')
-  async findOne(@Param('id') id: string) {
-    await this.studyMaterialService.incrementDownload(id);
-    return this.studyMaterialService.findOne(id);
+  async findOne(@Param('id') id: string, @CurrentUser() currentUser: AuthUser) {
+    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
+    if (!user) throw new NotFoundException('User not found');
+    await this.studyMaterialService.incrementDownload(id, user.id);
+    return this.studyMaterialService.findOne(id, user.id);
   }
 
   @Patch(':id')
@@ -175,7 +177,7 @@ async findNeedsReview() {
     @CurrentUser() currentUser: AuthUser,
   ) {
     const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
-    if (!user) throw new Error('User not found');
+    if (!user) throw new NotFoundException('User not found');
     return this.studyMaterialService.update(id, user.id, {
       title: body.title,
       description: body.description,
@@ -191,7 +193,7 @@ async findNeedsReview() {
   @Delete(':id')
   async delete(@Param('id') id: string, @CurrentUser() currentUser: AuthUser) {
     const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
-    if (!user) throw new Error('User not found');
+    if (!user) throw new NotFoundException('User not found');
     return this.studyMaterialService.delete(id, user.id);
   }
 
@@ -209,8 +211,8 @@ async findNeedsReview() {
     @CurrentUser() currentUser: AuthUser,
   ) {
     const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
-    if (!user) throw new Error('User not found');
-    if (!file) throw new Error('No zip file provided');
+    if (!user) throw new NotFoundException('User not found');
+    if (!file) throw new BadRequestException('No zip file provided');
 
     let universityId = user.universityId;
     if (body.university) {
@@ -225,7 +227,7 @@ async findNeedsReview() {
       });
       if (uni) universityId = uni.id;
     }
-    if (!universityId) throw new Error('University not found. Please set your university in your profile.');
+    if (!universityId) throw new BadRequestException('University not found. Please set your university in your profile.');
 
     return this.studyMaterialService.bulkUploadFromZip(file.buffer, {
       userId: user.id,
@@ -238,20 +240,23 @@ async findNeedsReview() {
   }
 
   @Patch('bulk')
-  @UseGuards(JwtAuthGuard)
-  async bulkUpdate(@Body() dto: { ids: string[]; data: Partial<{
-    faculty: string; department: string; level: string; semester: string; course: string;
-  }> }) {
-    return this.studyMaterialService.bulkUpdate(dto.ids, dto.data);
+  async bulkUpdate(
+    @Body() dto: { ids: string[]; data: Partial<{
+      faculty: string; department: string; level: string; semester: string; course: string; isPublic: boolean;
+    }> },
+    @CurrentUser() currentUser: AuthUser,
+  ) {
+    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
+    if (!user) throw new NotFoundException('User not found');
+    return this.studyMaterialService.bulkUpdate(dto.ids, user.id, dto.data);
   }
 
-
-
-@Patch(':id/resolve-review')
-async resolveReview(
-  @Param('id') id: string,
-  @Body() body: { department: string; level: string; semester: string; faculty: string },
-) {
-  return this.studyMaterialService.resolveReview(id, body);
-}
+  @Patch(':id/resolve-review')
+  @UseGuards(AdminGuard)
+  async resolveReview(
+    @Param('id') id: string,
+    @Body() body: { department: string; level: string; semester: string; faculty: string },
+  ) {
+    return this.studyMaterialService.resolveReview(id, body);
+  }
 }
