@@ -31,6 +31,7 @@ import { RedisModule } from './redis/redis.module';
 import { SchoolModule } from './school/school.module';
 import { DepartmentModule } from './department/department.module';
 import { ProgramModule } from './program/program.module';
+import { CoursesModule } from './courses/courses.module';
 
 @Module({
  imports: [
@@ -65,6 +66,7 @@ import { ProgramModule } from './program/program.module';
     SchoolModule,
     DepartmentModule,
     ProgramModule,
+    CoursesModule,
   ],
   controllers: [SearchController, AppController],
  providers: [PrismaService, 

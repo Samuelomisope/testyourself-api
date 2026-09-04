@@ -25,61 +25,63 @@ export class StudyMaterialController {
     return this.studyMaterialService.findNeedsReview();
   }
 
-  @Post('upload')
-  @UseInterceptors(FileInterceptor('file'))
-  async upload(
-    @UploadedFile() file: Express.Multer.File,
-    @Body() body: {
-      title: string;
-      description?: string;
-      faculty?: string;
-      department?: string;
-      level?: string;
-      semester?: string;
-      course?: string;
-      isPublic?: string;
-      university?: string;
-    },
-    @CurrentUser() currentUser: AuthUser,
-  ) {
-    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
-    if (!user) throw new NotFoundException('User not found');
-    if (!file) throw new BadRequestException('No file provided');
-    if (file.size > 100 * 1024 * 1024) throw new BadRequestException('File too large. Maximum size is 100MB.');
+@Post('upload')
+@UseInterceptors(FileInterceptor('file'))
+async upload(
+  @UploadedFile() file: Express.Multer.File,
+  @Body() body: {
+    title: string;
+    description?: string;
+    faculty?: string;
+    department?: string;
+    level?: string;
+    semester?: string;
+    course?: string;
+    courseId?: string;   // ← new
+    isPublic?: string;
+    university?: string;
+  },
+  @CurrentUser() currentUser: AuthUser,
+) {
+  const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
+  if (!user) throw new NotFoundException('User not found');
+  if (!file) throw new BadRequestException('No file provided');
+  if (file.size > 100 * 1024 * 1024) throw new BadRequestException('File too large. Maximum size is 100MB.');
 
-    let universityId = user.universityId;
-    if (body.university) {
-      const uniName = Array.isArray(body.university) ? body.university[0] : body.university;
-      const uni = await this.prisma.university.findFirst({
-        where: {
-          OR: [
-            { name: { equals: uniName, mode: 'insensitive' } },
-            { shortName: { equals: uniName, mode: 'insensitive' } },
-          ],
-        },
-      });
-      if (uni) universityId = uni.id;
-    }
-
-    if (!universityId) throw new BadRequestException('University not found. Please set your university in your profile.');
-
-    return this.studyMaterialService.create({
-      title: body.title,
-      description: body.description,
-      fileBuffer: file.buffer,
-      originalName: file.originalname,
-      fileType: file.mimetype,
-      fileSize: file.size,
-      userId: user.id,
-      universityId,
-      faculty: body.faculty,
-      department: body.department,
-      level: body.level,
-      semester: body.semester,
-      course: body.course,
-      isPublic: body.isPublic !== 'false',
+  let universityId = user.universityId;
+  if (body.university) {
+    const uniName = Array.isArray(body.university) ? body.university[0] : body.university;
+    const uni = await this.prisma.university.findFirst({
+      where: {
+        OR: [
+          { name: { equals: uniName, mode: 'insensitive' } },
+          { shortName: { equals: uniName, mode: 'insensitive' } },
+        ],
+      },
     });
+    if (uni) universityId = uni.id;
   }
+
+  if (!universityId) throw new BadRequestException('University not found. Please set your university in your profile.');
+
+  return this.studyMaterialService.create({
+    title: body.title,
+    description: body.description,
+    fileBuffer: file.buffer,
+    originalName: file.originalname,
+    fileType: file.mimetype,
+    fileSize: file.size,
+    userId: user.id,
+    universityId,
+    faculty: body.faculty,
+    department: body.department,
+    level: body.level,
+    semester: body.semester,
+    course: body.course,
+    courseId: body.courseId,   // ← new
+    isPublic: body.isPublic !== 'false',
+  });
+}
 
   @Get()
   async findAll(
@@ -161,34 +163,36 @@ export class StudyMaterialController {
     return this.studyMaterialService.findOne(id, user.id);
   }
 
-  @Patch(':id')
-  async update(
-    @Param('id') id: string,
-    @Body() body: {
-      title?: string;
-      description?: string;
-      faculty?: string;
-      department?: string;
-      level?: string;
-      semester?: string;
-      course?: string;
-      isPublic?: string;
-    },
-    @CurrentUser() currentUser: AuthUser,
-  ) {
-    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
-    if (!user) throw new NotFoundException('User not found');
-    return this.studyMaterialService.update(id, user.id, {
-      title: body.title,
-      description: body.description,
-      faculty: body.faculty,
-      department: body.department,
-      level: body.level,
-      semester: body.semester,
-      course: body.course,
-      isPublic: body.isPublic === undefined ? undefined : body.isPublic !== 'false',
-    });
-  }
+@Patch(':id')
+async update(
+  @Param('id') id: string,
+  @Body() body: {
+    title?: string;
+    description?: string;
+    faculty?: string;
+    department?: string;
+    level?: string;
+    semester?: string;
+    course?: string;
+    courseId?: string | null;   // ← new
+    isPublic?: string;
+  },
+  @CurrentUser() currentUser: AuthUser,
+) {
+  const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
+  if (!user) throw new NotFoundException('User not found');
+  return this.studyMaterialService.update(id, user.id, {
+    title: body.title,
+    description: body.description,
+    faculty: body.faculty,
+    department: body.department,
+    level: body.level,
+    semester: body.semester,
+    course: body.course,
+    courseId: body.courseId,   // ← new
+    isPublic: body.isPublic === undefined ? undefined : body.isPublic !== 'false',
+  });
+}
 
   @Delete(':id')
   async delete(@Param('id') id: string, @CurrentUser() currentUser: AuthUser) {
@@ -197,47 +201,49 @@ export class StudyMaterialController {
     return this.studyMaterialService.delete(id, user.id);
   }
 
-  @Post('bulk-upload')
-  @UseInterceptors(FileInterceptor('zipFile', { limits: { fileSize: 250 * 1024 * 1024 } }))
-  async bulkUpload(
-    @UploadedFile() file: Express.Multer.File,
-    @Body() body: {
-      department?: string;
-      level?: string;
-      semester?: string;
-      isPublic?: string;
-      university?: string;
-    },
-    @CurrentUser() currentUser: AuthUser,
-  ) {
-    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
-    if (!user) throw new NotFoundException('User not found');
-    if (!file) throw new BadRequestException('No zip file provided');
+@Post('bulk-upload')
+@UseInterceptors(FileInterceptor('zipFile', { limits: { fileSize: 250 * 1024 * 1024 } }))
+async bulkUpload(
+  @UploadedFile() file: Express.Multer.File,
+  @Body() body: {
+    programId?: string;
+    universityId?: string;   // ← add this
+    level?: string;
+    semester?: string;
+    isPublic?: string;
+    university?: string;
+  },
+  @CurrentUser() currentUser: AuthUser,
+) {
+  const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
+  if (!user) throw new NotFoundException('User not found');
+  if (!file) throw new BadRequestException('No zip file provided');
+  if (!body.programId) throw new BadRequestException('Program is required for bulk upload.');
 
-    let universityId = user.universityId;
-    if (body.university) {
-      const uniName = Array.isArray(body.university) ? body.university[0] : body.university;
-      const uni = await this.prisma.university.findFirst({
-        where: {
-          OR: [
-            { name: { equals: uniName, mode: 'insensitive' } },
-            { shortName: { equals: uniName, mode: 'insensitive' } },
-          ],
-        },
-      });
-      if (uni) universityId = uni.id;
-    }
-    if (!universityId) throw new BadRequestException('University not found. Please set your university in your profile.');
-
-    return this.studyMaterialService.bulkUploadFromZip(file.buffer, {
-      userId: user.id,
-      universityId,
-      department: body.department,
-      level: body.level,
-      semester: body.semester,
-      isPublic: body.isPublic !== 'false',
+  let universityId = body.universityId || user.universityId;   // ← prefer explicit id
+  if (!body.universityId && body.university) {
+    const uniName = Array.isArray(body.university) ? body.university[0] : body.university;
+    const uni = await this.prisma.university.findFirst({
+      where: {
+        OR: [
+          { name: { equals: uniName, mode: 'insensitive' } },
+          { shortName: { equals: uniName, mode: 'insensitive' } },
+        ],
+      },
     });
+    if (uni) universityId = uni.id;
   }
+  if (!universityId) throw new BadRequestException('University not found. Please set your university in your profile.');
+
+  return this.studyMaterialService.bulkUploadFromZip(file.buffer, {
+    userId: user.id,
+    universityId,
+    programId: body.programId,
+    level: body.level,
+    semester: body.semester,
+    isPublic: body.isPublic !== 'false',
+  });
+}
 
   @Patch('bulk')
   async bulkUpdate(

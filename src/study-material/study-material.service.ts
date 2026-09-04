@@ -191,17 +191,17 @@ export class StudyMaterialService {
     return !parts.some((p) => p === '..');
   }
 
-  async bulkUploadFromZip(
-    zipBuffer: Buffer,
-    opts: {
-      userId: string;
-      universityId: string;
-      department?: string;
-      level?: string;
-      semester?: string;
-      isPublic?: boolean;
-    },
-  ) {
+ async bulkUploadFromZip(
+  zipBuffer: Buffer,
+  opts: {
+    userId: string;
+    universityId: string;
+    programId: string;
+    level?: string;
+    semester?: string;
+    isPublic?: boolean;
+  },
+) {
     const directory = await unzipper.Open.buffer(zipBuffer);
 
     const summary = {
@@ -254,40 +254,50 @@ export class StudyMaterialService {
     for (const [folderName, entries] of grouped) {
       summary.courses.push(folderName);
 
-      await Promise.all(
-        entries.map((entry) =>
-          limit(async () => {
-            try {
-              const buffer = await entry.buffer();
-              if (buffer.length > MAX_FILE_SIZE) {
-                summary.skipped.push({ file: entry.path, reason: 'File too large (max 100MB)' });
-                return;
-              }
+     await Promise.all(
+  entries.map((entry) =>
+    limit(async () => {
+      try {
+        const buffer = await entry.buffer();
+        if (buffer.length > MAX_FILE_SIZE) {
+          summary.skipped.push({ file: entry.path, reason: 'File too large (max 100MB)' });
+          return;
+        }
 
-              const fileName = path.basename(entry.path);
-              await this.create({
-                title: fileName.replace(/\.[^/.]+$/, ''),
-                fileBuffer: buffer,
-                originalName: fileName,
-                fileType: mimeTypeFor(fileName),
-                fileSize: buffer.length,
-                userId: opts.userId,
-                universityId: opts.universityId,
-                faculty: folderName,
-                department: opts.department,
-                level: opts.level,
-                semester: opts.semester,
-                course: folderName,
-                isPublic: opts.isPublic,
-              });
+        const courseId = await this.findOrCreateCourseId({
+          programId: opts.programId,
+          code: folderName,
+          level: opts.level,
+          semester: opts.semester,
+        });
 
-              summary.uploaded.push({ file: entry.path, course: folderName });
-            } catch (err) {
-              summary.skipped.push({ file: entry.path, reason: err.message });
-            }
-          }),
-        ),
-      );
+        const fileName = path.basename(entry.path);
+        const fileUrl = await this.uploadToR2(buffer, fileName, mimeTypeFor(fileName));
+
+        await this.prisma.studyMaterial.create({
+          data: {
+            title: fileName.replace(/\.[^/.]+$/, ''),
+            fileUrl,
+            fileType: mimeTypeFor(fileName),
+            fileSize: buffer.length,
+            userId: opts.userId,
+            universityId: opts.universityId,
+            course: folderName,
+            courseId,
+            level: opts.level,
+            semester: opts.semester,
+            isPublic: opts.isPublic ?? true,
+            needsReview: false,
+          },
+        });
+
+        summary.uploaded.push({ file: entry.path, course: folderName });
+      } catch (err) {
+        summary.skipped.push({ file: entry.path, reason: err.message });
+      }
+    }),
+  ),
+);
     }
 
     return summary;
@@ -303,141 +313,164 @@ export class StudyMaterialService {
   }
 
   async create(data: {
-    title: string;
-    description?: string;
-    fileBuffer: Buffer;
-    originalName: string;
-    fileType: string;
-    fileSize: number;
-    userId: string;
-    universityId: string;
-    faculty?: string;
-    department?: string;
-    level?: string;
-    semester?: string;
-    course?: string;
-    isPublic?: boolean;
-  }) {
-    const fileUrl = await this.uploadToR2(data.fileBuffer, data.originalName, data.fileType);
+  title: string;
+  description?: string;
+  fileBuffer: Buffer;
+  originalName: string;
+  fileType: string;
+  fileSize: number;
+  userId: string;
+  universityId: string;
+  faculty?: string;
+  department?: string;
+  level?: string;
+  semester?: string;
+  course?: string;
+  courseId?: string;   // ← new: trust this when the frontend already resolved it
+  isPublic?: boolean;
+}) {
+  const fileUrl = await this.uploadToR2(data.fileBuffer, data.originalName, data.fileType);
 
-    try {
-      const courseId = await this.resolveCourseId({
+  try {
+    let courseId: string | null = null;
+
+    if (data.courseId) {
+      // Frontend already resolved (or created) the course via the cascade
+      // UI — trust it, but verify it actually belongs to this university
+      // so a stale/mismatched id can't attach a material to the wrong school.
+      const course = await this.prisma.course.findUnique({
+        where: { id: data.courseId },
+        include: { program: { include: { department: { include: { school: true } } } } },
+      });
+      if (course && course.program.department.school.universityId === data.universityId) {
+        courseId = course.id;
+      }
+    } else {
+      courseId = await this.resolveCourseId({
         universityId: data.universityId,
         departmentName: data.department,
         courseCode: data.course,
         level: data.level,
         semester: data.semester,
       });
-
-      const material = await this.prisma.studyMaterial.create({
-        data: {
-          title: data.title,
-          description: data.description,
-          fileUrl,
-          fileType: data.fileType,
-          fileSize: data.fileSize,
-          userId: data.userId,
-          universityId: data.universityId,
-          faculty: data.faculty,
-          department: data.department,
-          level: data.level,
-          semester: data.semester,
-          course: data.course,
-          courseId: courseId ?? undefined,
-          isPublic: data.isPublic ?? true,
-          needsReview: !data.faculty || !data.department || !data.semester || !data.level || !courseId,
-        },
-        include: {
-          user: { select: { displayName: true, photoURL: true } },
-          courseRef: { include: { program: { include: { department: { include: { school: true } } } } } },
-        },
-      });
-
-      await this.prisma.activityLog.create({
-        data: {
-          userId: data.userId,
-          type: 'upload',
-          description: `Uploaded "${data.title}"`,
-          href: '/study-material',
-        },
-      });
-
-      return this.withSignedUrl(material);
-    } catch (err) {
-      // The DB write (or the activity log write) failed after the file was
-      // already durably stored in R2. Without this, the object is orphaned
-      // forever — nothing in the DB points to it, so it can never be found
-      // or cleaned up later. Best-effort delete; if even that fails, at
-      // least surface both errors instead of swallowing the leak silently.
-      try {
-        await this.deleteFromR2(fileUrl);
-      } catch (cleanupErr) {
-        err.message = `${err.message} (additionally failed to clean up orphaned R2 object: ${cleanupErr.message})`;
-      }
-      throw err;
-    }
-  }
-
-  // ── UPDATE metadata (owner only) ─────────────────────────────
-  async update(id: string, userId: string, data: {
-    title?: string;
-    description?: string;
-    faculty?: string;
-    course?: string;
-    department?: string;
-    level?: string;
-    semester?: string;
-    isPublic?: boolean;
-  }) {
-    const material = await this.prisma.studyMaterial.findUnique({ where: { id } });
-    if (!material) throw new NotFoundException('Study material not found');
-    if (material.userId !== userId) throw new ForbiddenException('Not your material');
-
-    // Only re-resolve courseRef when a field that affects classification
-    // was actually touched — leaves title/description-only edits alone.
-    const touchingClassification =
-      data.faculty !== undefined ||
-      data.department !== undefined ||
-      data.level !== undefined ||
-      data.semester !== undefined ||
-      data.course !== undefined;
-
-    let resolvedCourseId: string | null | undefined = undefined;
-    if (touchingClassification) {
-      resolvedCourseId = await this.resolveCourseId({
-        universityId: material.universityId,
-        departmentName: data.department ?? material.department,
-        courseCode: data.course ?? material.course,
-        level: data.level ?? material.level,
-        semester: data.semester ?? material.semester,
-      });
     }
 
-    const updated = await this.prisma.studyMaterial.update({
-      where: { id },
+    const material = await this.prisma.studyMaterial.create({
       data: {
-        ...(data.title !== undefined && { title: data.title }),
-        ...(data.description !== undefined && { description: data.description }),
-        ...(data.faculty !== undefined && { faculty: data.faculty }),
-        ...(data.course !== undefined && { course: data.course }),
-        ...(data.department !== undefined && { department: data.department }),
-        ...(data.level !== undefined && { level: data.level }),
-        ...(data.semester !== undefined && { semester: data.semester }),
-        ...(data.isPublic !== undefined && { isPublic: data.isPublic }),
-        // Editing classification always re-decides courseRef: matched id,
-        // or explicit null to clear a stale/no-longer-valid link rather
-        // than silently leaving the old one in place.
-        ...(touchingClassification && { courseId: resolvedCourseId }),
-        ...(touchingClassification && { needsReview: !resolvedCourseId }),
+        title: data.title,
+        description: data.description,
+        fileUrl,
+        fileType: data.fileType,
+        fileSize: data.fileSize,
+        userId: data.userId,
+        universityId: data.universityId,
+        faculty: data.faculty,
+        department: data.department,
+        level: data.level,
+        semester: data.semester,
+        course: data.course,
+        courseId: courseId ?? undefined,
+        isPublic: data.isPublic ?? true,
+        needsReview: !courseId,
       },
       include: {
         user: { select: { displayName: true, photoURL: true } },
-        university: { select: { id: true, name: true, shortName: true } },
         courseRef: { include: { program: { include: { department: { include: { school: true } } } } } },
       },
     });
-    return this.withSignedUrl(updated);
+
+    await this.prisma.activityLog.create({
+      data: {
+        userId: data.userId,
+        type: 'upload',
+        description: `Uploaded "${data.title}"`,
+        href: '/study-material',
+      },
+    });
+
+    return this.withSignedUrl(material);
+  } catch (err) {
+    try {
+      await this.deleteFromR2(fileUrl);
+    } catch (cleanupErr) {
+      err.message = `${err.message} (additionally failed to clean up orphaned R2 object: ${cleanupErr.message})`;
+    }
+    throw err;
   }
+}
+
+  // ── UPDATE metadata (owner only) ─────────────────────────────
+async update(id: string, userId: string, data: {
+  title?: string;
+  description?: string;
+  faculty?: string;
+  course?: string;
+  department?: string;
+  level?: string;
+  semester?: string;
+  courseId?: string | null;   // ← new: explicit id from the cascade UI; null = user cleared it
+  isPublic?: boolean;
+}) {
+  const material = await this.prisma.studyMaterial.findUnique({ where: { id } });
+  if (!material) throw new NotFoundException('Study material not found');
+  if (material.userId !== userId) throw new ForbiddenException('Not your material');
+
+  const touchingClassification =
+    data.faculty !== undefined ||
+    data.department !== undefined ||
+    data.level !== undefined ||
+    data.semester !== undefined ||
+    data.course !== undefined ||
+    data.courseId !== undefined;
+
+  let resolvedCourseId: string | null | undefined = undefined;
+  if (data.courseId !== undefined) {
+    // Frontend cascade already resolved (or created) the course — trust it,
+    // but verify it belongs to this material's university.
+    if (data.courseId === null) {
+      resolvedCourseId = null;
+    } else {
+      const course = await this.prisma.course.findUnique({
+        where: { id: data.courseId },
+        include: { program: { include: { department: { include: { school: true } } } } },
+      });
+      resolvedCourseId =
+        course && course.program.department.school.universityId === material.universityId
+          ? course.id
+          : null;
+    }
+  } else if (touchingClassification) {
+    resolvedCourseId = await this.resolveCourseId({
+      universityId: material.universityId,
+      departmentName: data.department ?? material.department,
+      courseCode: data.course ?? material.course,
+      level: data.level ?? material.level,
+      semester: data.semester ?? material.semester,
+    });
+  }
+
+  const updated = await this.prisma.studyMaterial.update({
+    where: { id },
+    data: {
+      ...(data.title !== undefined && { title: data.title }),
+      ...(data.description !== undefined && { description: data.description }),
+      ...(data.faculty !== undefined && { faculty: data.faculty }),
+      ...(data.course !== undefined && { course: data.course }),
+      ...(data.department !== undefined && { department: data.department }),
+      ...(data.level !== undefined && { level: data.level }),
+      ...(data.semester !== undefined && { semester: data.semester }),
+      ...(data.isPublic !== undefined && { isPublic: data.isPublic }),
+      ...(touchingClassification && { courseId: resolvedCourseId }),
+      ...(touchingClassification && { needsReview: !resolvedCourseId }),
+    },
+    include: {
+      user: { select: { displayName: true, photoURL: true } },
+      university: { select: { id: true, name: true, shortName: true } },
+      courseRef: { include: { program: { include: { department: { include: { school: true } } } } } },
+    },
+  });
+  return this.withSignedUrl(updated);
+}
 
   async findByUser(userId: string) {
     const materials = await this.prisma.studyMaterial.findMany({
@@ -591,4 +624,28 @@ export class StudyMaterialService {
       },
     });
   }
+
+  private async findOrCreateCourseId(input: {
+  programId: string;
+  code: string;
+  level?: string | null;
+  semester?: string | null;
+}): Promise<string> {
+  const code = input.code.trim();
+  const existing = await this.prisma.course.findUnique({
+    where: { programId_code: { programId: input.programId, code } },
+  });
+  if (existing) return existing.id;
+
+  const created = await this.prisma.course.create({
+    data: {
+      programId: input.programId,
+      code,
+      title: code, // zip folder names don't carry a separate course title
+      level: input.level ?? undefined,
+      semester: input.semester ?? undefined,
+    },
+  });
+  return created.id;
+}
 }
