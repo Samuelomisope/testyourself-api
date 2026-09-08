@@ -4,9 +4,10 @@ import { UniversitiesController } from './universities.controller';
 import { UniversityNewsController } from './university-news.controller';
 import { UniversityNewsService } from './university-news.service';
 import { AuthModule } from '../auth/auth.module';
+import { UploadModule } from '../upload/upload.module';
 
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, UploadModule],
   controllers: [UniversitiesController, UniversityNewsController],
   providers: [UniversitiesService, UniversityNewsService],
   exports: [UniversitiesService, UniversityNewsService],

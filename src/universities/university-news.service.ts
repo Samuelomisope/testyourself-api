@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { UploadService } from '../upload/upload.service';
 
 type NewsStatus = 'DRAFT' | 'PUBLISHED';
 
@@ -25,23 +26,40 @@ interface UpdateNewsInput {
 
 @Injectable()
 export class UniversityNewsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+  private prisma: PrismaService,
+  private uploadService: UploadService,
+) {}
 
-  // Public feed — students only ever see PUBLISHED items, newest first
-  async findPublishedForUniversity(universityId: string) {
-    return this.prisma.universityNews.findMany({
-      where: { universityId, status: 'PUBLISHED' },
-      orderBy: { publishedAt: 'desc' },
-    });
-  }
+ async findPublishedForUniversity(universityId: string) {
+  const items = await this.prisma.universityNews.findMany({
+    where: { universityId, status: 'PUBLISHED' },
+    orderBy: { publishedAt: 'desc' },
+  });
+  return this.withSignedCover(items);
+}
 
-  // Admin management view — sees everything, including drafts
-  async findAllForUniversityAdmin(universityId: string) {
-    return this.prisma.universityNews.findMany({
-      where: { universityId },
-      orderBy: { publishedAt: 'desc' },
-    });
-  }
+async findAllForUniversityAdmin(universityId: string) {
+  const items = await this.prisma.universityNews.findMany({
+    where: { universityId },
+    orderBy: { publishedAt: 'desc' },
+  });
+  return this.withSignedCover(items);
+}
+
+private async withSignedCover<T extends { coverImageUrl?: string | null }>(
+  items: T[],
+): Promise<T[]> {
+  return Promise.all(
+    items.map(async (item) => {
+      if (!item.coverImageUrl) return item;
+      const signedUrl = await this.uploadService.getSignedUrlForStoredRef(
+        item.coverImageUrl,
+      );
+      return { ...item, coverImageUrl: signedUrl };
+    }),
+  );
+}
 
   async create(universityId: string, data: CreateNewsInput) {
     return this.prisma.universityNews.create({
