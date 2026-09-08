@@ -83,7 +83,6 @@ const FUTA_CONTENT = {
 async function main() {
   const dryRun = process.argv.includes('--dry-run');
 
-  // --- 1. Backfill slugs for any University missing one ---
   const universities = await prisma.university.findMany();
   for (const u of universities) {
     if (u.slug) continue;
@@ -93,11 +92,6 @@ async function main() {
       await prisma.university.update({ where: { id: u.id }, data: { slug } });
     }
   }
-
-  // --- 2. Seed FUTA's real content (only fills empty fields) ---
-  // Match by the same substring the slug override uses, trimmed and
-  // case-insensitive, rather than an exact "FUTA" match against a DB
-  // name that's actually the full institution name.
   const futa = universities.find((u) =>
     u.name.trim().toLowerCase().includes('federal university of technology'),
   );
