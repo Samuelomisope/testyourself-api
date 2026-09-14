@@ -90,13 +90,14 @@ export class FlashcardService {
     });
   }
 
-  async deleteDeck(id: string, userId: string) {
-    const deck = await this.prisma.flashcardDeck.findUnique({ where: { id } });
-    if (!deck) throw new NotFoundException('Flashcard deck not found');
-    if (deck.userId !== userId) throw new ForbiddenException('Not your deck');
-    return this.prisma.flashcardDeck.delete({ where: { id } });
-  }
+ async deleteDeck(id: string, userId: string) {
+  const deck = await this.prisma.flashcardDeck.findUnique({ where: { id } });
+  if (!deck) throw new NotFoundException('Flashcard deck not found');
+  if (deck.userId !== userId) throw new ForbiddenException('Not your deck');
 
+  await this.prisma.flashcard.deleteMany({ where: { deckId: id } });
+  return this.prisma.flashcardDeck.delete({ where: { id } });
+}
   // ── REVIEW (SM-2) ─────────────────────────────────────
 
   // Cards due for this user right now, across a specific deck

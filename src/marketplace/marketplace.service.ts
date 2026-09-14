@@ -133,13 +133,35 @@ export class MarketplaceService {
     });
   }
 
-  async updateListing(id: string, firebaseUid: string, data: any) {
+  async updateListing(id: string, firebaseUid: string, data: {
+    title?: string;
+    description?: string;
+    price?: number;
+    images?: string[];
+    category?: string;
+    type?: string;
+    condition?: string;
+    tags?: string[];
+  }) {
     const user = await this.getDbUser(firebaseUid);
     const item = await this.prisma.marketplaceItem.findUnique({ where: { id } });
     if (!item) throw new NotFoundException('Listing not found');
     if (item.userId !== user.id) throw new ForbiddenException('Not your listing');
 
-    return this.prisma.marketplaceItem.update({ where: { id }, data });
+    // Explicitly whitelist editable listing fields. Never accept ownership,
+    // university, timestamps, or moderation state from the client.
+    const updateData = {
+      ...(typeof data.title === 'string' && { title: data.title }),
+      ...(typeof data.description === 'string' && { description: data.description }),
+      ...(typeof data.price === 'number' && Number.isFinite(data.price) && { price: data.price }),
+      ...(Array.isArray(data.images) && { images: data.images }),
+      ...(typeof data.category === 'string' && { category: data.category }),
+      ...(typeof data.type === 'string' && { type: data.type as any }),
+      ...(typeof data.condition === 'string' && { condition: data.condition as any }),
+      ...(Array.isArray(data.tags) && { tags: data.tags }),
+    };
+
+    return this.prisma.marketplaceItem.update({ where: { id }, data: updateData });
   }
 
   async deleteListing(id: string, firebaseUid: string) {

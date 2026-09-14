@@ -25,30 +25,35 @@ export class UploadService {
       ContentType: file.mimetype,
     }));
 
-    // Store a stable, UNSIGNED reference. Signed URLs expire � we sign
+    // Store a stable, UNSIGNED reference. Signed URLs expire — we sign
     // fresh on every read instead, via getSignedUrlForStoredRef.
     return `${process.env.R2_ENDPOINT}/${process.env.R2_BUCKET_NAME}/${key}`;
   }
 
   extractKey(storedUrl: string): string {
-    // Strip query string first � old expired signed URLs still have the
-    // correct key in the path, just with stale ?X-Amz-... params attached.
-    const clean = storedUrl.split('?')[0];
+  // Strip query string first — old expired signed URLs still have the
+  // correct key in the path, just with stale ?X-Amz-... params attached.
+  const clean = storedUrl.split('?')[0];
 
-    if (clean.includes(`/${process.env.R2_BUCKET_NAME}/`)) {
-      return clean.split(`/${process.env.R2_BUCKET_NAME}/`)[1];
-    }
-    if (clean.includes('.r2.cloudflarestorage.com/')) {
-      return clean.split('.r2.cloudflarestorage.com/')[1];
-    }
-    if (clean.includes('.wasabisys.com/')) {
-      const afterHost = clean.split('.wasabisys.com/')[1];
-      const segments = afterHost.split('/');
-      return segments[0] === 'testyourself' ? segments.slice(1).join('/') : afterHost;
-    }
-    return clean;
+  // Public R2 dev URL: pub-<hash>.r2.dev/<key> — no bucket segment in the
+  // path, the bucket is implied by the pub-<hash> subdomain.
+  if (clean.includes('.r2.dev/')) {
+    return clean.split('.r2.dev/')[1];
   }
 
+  if (clean.includes(`/${process.env.R2_BUCKET_NAME}/`)) {
+    return clean.split(`/${process.env.R2_BUCKET_NAME}/`)[1];
+  }
+  if (clean.includes('.r2.cloudflarestorage.com/')) {
+    return clean.split('.r2.cloudflarestorage.com/')[1];
+  }
+  if (clean.includes('.wasabisys.com/')) {
+    const afterHost = clean.split('.wasabisys.com/')[1];
+    const segments = afterHost.split('/');
+    return segments[0] === 'testyourself' ? segments.slice(1).join('/') : afterHost;
+  }
+  return clean;
+}
   async getSignedUrlForStoredRef(storedUrl: string): Promise<string> {
     const key = this.extractKey(storedUrl);
     const command = new GetObjectCommand({
@@ -56,6 +61,29 @@ export class UploadService {
       Key: key,
     });
     return getSignedUrl(this.s3, command, { expiresIn: 3600 });
+  }
+
+  /**
+   * Downloads a stored file's raw bytes — needed by ClassificationService for hashing
+   * (duplicate detection) and, later, text extraction/OCR. Unlike getSignedUrlForStoredRef,
+   * this reads the object directly server-side rather than handing back a URL.
+   */
+  async downloadFile(storedUrl: string): Promise<Buffer> {
+    const key = this.extractKey(storedUrl);
+    const command = new GetObjectCommand({
+      Bucket: process.env.R2_BUCKET_NAME,
+      Key: key,
+    });
+    const response = await this.s3.send(command);
+    return this.streamToBuffer(response.Body as NodeJS.ReadableStream);
+  }
+
+  private async streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as any));
+    }
+    return Buffer.concat(chunks);
   }
 
   async deleteFile(url: string): Promise<void> {
