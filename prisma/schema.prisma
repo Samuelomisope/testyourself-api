@@ -109,6 +109,7 @@ model User {
   writerAvatarUrl String?
   novelReviews NovelReview[]
   novels         Novel[]
+  askUniLibQueries AskUniLibQuery[]
   isOnline      Boolean   @default(false)
 }
 
@@ -161,6 +162,21 @@ model StudyMaterial {
   university     University      @relation(fields: [universityId], references: [id])
   user           User            @relation(fields: [userId], references: [id])
   courseRef      Course?         @relation(fields: [courseId], references: [id])
+  
+  fileHash                 String?               @db.VarChar(64) // SHA-256 hex digest
+  classificationStatus     ClassificationStatus  @default(PENDING)
+  classificationConfidence Float?                // 0-100, null until a rule/AI has run
+  classificationMethod     ClassificationMethod?
+  classificationReason     String?               @db.Text // human-readable: which rule fired, or why it's ambiguous
+  extractedCourseCode      String?               // raw code the regex found, pre-normalization, kept for debugging/audit
+
+  duplicateOfId String?
+  duplicateOf   StudyMaterial?  @relation("DuplicateOf", fields: [duplicateOfId], references: [id])
+  duplicates    StudyMaterial[] @relation("DuplicateOf")
+
+  @@index([fileHash])
+  @@index([classificationStatus])
+
 }
 
 model School {
@@ -442,7 +458,6 @@ model FlashcardDeck {
   university       University          @relation(fields: [universityId], references: [id])
   user             User                @relation(fields: [userId], references: [id])
 }
-
 model Flashcard {
   id         String               @id @default(uuid())
   deckId     String
@@ -450,11 +465,10 @@ model Flashcard {
   back       String
   createdAt  DateTime             @default(now())
   updatedAt  DateTime             @updatedAt
-  deck       FlashcardDeck        @relation(fields: [deckId], references: [id])
+  deck       FlashcardDeck        @relation(fields: [deckId], references: [id], onDelete: Cascade)
   progress   FlashcardProgress[]
   reviewLogs FlashcardReviewLog[]
 }
-
 model FlashcardProgress {
   id             String    @id @default(uuid())
   userId         String
@@ -601,3 +615,111 @@ model NovelReview {
   @@unique([userId, novelId])
   @@index([novelId])
 }
+
+
+enum AskUniLibContentType {
+  LECTURE_TEXT
+  EXAM_QUESTION
+  MATH_QUESTION
+  DIAGRAM
+  MULTIPLE_QUESTIONS
+  MESSY_NOTES
+  TEXTBOOK_PAGE
+  UNKNOWN
+}
+
+enum AskUniLibQueryStatus {
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model AskUniLibQuery {
+  id                    String                @id @default(cuid())
+  studentId             String
+  student               User                  @relation(fields: [studentId], references: [id])
+  imageKey              String
+  imageUrl              String
+  question              String?
+  extractedText         String?               @db.Text
+  contentType           AskUniLibContentType?
+  contentTypeConfidence Int?
+  answer                String?               @db.Text
+  isUncertain           Boolean?
+  providerUsed          String?
+  modelUsed             String?
+  status                AskUniLibQueryStatus  @default(PROCESSING)
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  @@index([studentId, createdAt])
+}
+
+model StudyPlan {
+  id           String   @id @default(uuid())
+  userId       String
+  subject      String
+  examDate     DateTime?
+  daysAvailable Int
+  hoursPerDay  Int
+  entries      Json     // [{ day, focus, tasks[] }]
+  startDate    DateTime @default(now())
+  createdAt    DateTime @default(now())
+  active       Boolean  @default(true)
+}
+
+model ChatSession {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String?  // optional, e.g. auto-generated from first message
+  summary   String?  // running AI-generated summary, updated as it grows
+  messages  ChatMessage[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid())
+  sessionId String
+  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role      String   // "user" | "assistant"
+  content   String
+  createdAt DateTime @default(now())
+
+  @@index([sessionId, createdAt])
+}
+
+model AiGeneration {
+  id        String   @id @default(uuid())
+  userId    String
+  tool      String   // "quiz" | "explain" | "revision" | "practice" | "summarize"
+  title     String?
+  input     Json
+  result    Json
+  createdAt DateTime @default(now())
+
+  @@index([userId, tool])
+}
+
+// ============================================================
+// PHASE 3 — SLICE 1: Deterministic classification + exact-dup detection
+// Append these to schema.prisma, then run your usual `prisma db push`.
+// ============================================================
+
+enum ClassificationStatus {
+  PENDING             // not yet processed by the pipeline
+  AUTO_ORGANIZED      // resolved with high confidence, courseId set
+  NEEDS_REVIEW        // resolved with medium confidence, or rule found >1 candidate
+  UNABLE_TO_CLASSIFY  // no rule/AI signal at all — manual review required
+  DUPLICATE           // exact hash match against an existing material
+}
+
+enum ClassificationMethod {
+  RULE_COURSE_CODE  // deterministic filename/text regex + single DB match
+  RULE_AMBIGUOUS    // regex matched a code, but DB returned 0 or 2+ Course rows
+  AI                // reserved for the next slice
+  MANUAL            // admin-entered, bypassing the pipeline entirely
+}
+

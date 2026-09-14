@@ -32,6 +32,8 @@ import { SchoolModule } from './school/school.module';
 import { DepartmentModule } from './department/department.module';
 import { ProgramModule } from './program/program.module';
 import { CoursesModule } from './courses/courses.module';
+import { AIAssistantModule } from './ai-assistant/ai-assistant.module';
+import { ClassificationModule } from './classification/classification.module';
 
 @Module({
  imports: [
@@ -58,6 +60,7 @@ import { CoursesModule } from './courses/courses.module';
     UploadModule,
     ChatModule,
     AiModule,
+    AIAssistantModule,
     FeedbackModule,
     AnnouncementModule,
     FlashcardModule,
@@ -67,6 +70,7 @@ import { CoursesModule } from './courses/courses.module';
     DepartmentModule,
     ProgramModule,
     CoursesModule,
+    ClassificationModule,
   ],
   controllers: [SearchController, AppController],
  providers: [PrismaService, 
