@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DuplicateDetectionService } from './duplicate-detection.service';
 import { ClassificationRulesService } from './classification-rules.service';
+import { TextExtractionService } from './text-extraction.service';
 
 // Reconcile this with whatever UploadService already validates on the way into R2 —
 // duplicated here only so ClassificationService can run standalone in bulk-reprocess jobs
@@ -30,11 +31,6 @@ const EXTENSION_TO_MIME: Record<string, string> = {
   jpg: 'image/jpeg',
   png: 'image/png',
   webp: 'image/webp',
-  // Generic category labels from older upload paths — the real subtype
-  // (e.g. .doc vs .docx) isn't recoverable from these, so this is a
-  // best-guess placeholder good enough for course-code-rule classification.
-  // If OCR/text-extraction later needs the *exact* format, these will need
-  // re-detection from the file buffer itself (e.g. via `file-type` package).
   document: 'application/msword',
   presentation: 'application/vnd.ms-powerpoint',
   image: 'image/jpeg',
@@ -55,6 +51,7 @@ export class ClassificationService {
     private readonly prisma: PrismaService,
     private readonly duplicateDetection: DuplicateDetectionService,
     private readonly rules: ClassificationRulesService,
+    private readonly textExtraction: TextExtractionService,
   ) {}
 validateFile(mimeType: string): { valid: boolean; reason?: string; normalizedMimeType?: string } {
   const normalized = SUPPORTED_MIME_TYPES.has(mimeType)
@@ -110,7 +107,18 @@ validateFile(mimeType: string): { valid: boolean; reason?: string; normalizedMim
       return { materialId, status: 'DUPLICATE', reason };
     }
 
-    const sourceText = material.title ?? '';
+    const extraction = await this.textExtraction.extractText(fileBuffer, validation.normalizedMimeType!);
+    const sourceText = [material.title, extraction.text].filter(Boolean).join(' ');
+
+    // Extraction metadata is worth persisting even on NEEDS_REVIEW / UNABLE_TO_CLASSIFY
+    // outcomes below — it's reused later for OCR routing and RAG chunking, so every
+    // branch's update() now includes these three fields alongside its own status fields.
+    const extractionFields = {
+      extractedText: extraction.text || null,
+      textExtractionMethod: extraction.method,
+      needsOcr: extraction.likelyScanned,
+    };
+
     const ruleResult = await this.rules.classifyByCourseCode(sourceText, material.universityId);
 
     if (ruleResult.outcome === 'RESOLVED') {
@@ -121,6 +129,7 @@ validateFile(mimeType: string): { valid: boolean; reason?: string; normalizedMim
         where: { id: materialId },
         data: {
           fileHash,
+          ...extractionFields,
           courseId: course.id,
           extractedCourseCode: matchedCode.raw,
           classificationStatus: 'AUTO_ORGANIZED',
@@ -145,6 +154,7 @@ validateFile(mimeType: string): { valid: boolean; reason?: string; normalizedMim
         where: { id: materialId },
         data: {
           fileHash,
+          ...extractionFields,
           extractedCourseCode: matchedCode.raw,
           classificationStatus: 'NEEDS_REVIEW',
           classificationMethod: 'RULE_AMBIGUOUS',
@@ -155,13 +165,16 @@ validateFile(mimeType: string): { valid: boolean; reason?: string; normalizedMim
       return { materialId, status: 'NEEDS_REVIEW', reason };
     }
 
-    // NO_MATCH — no course code found at all. Until the text-extraction/OCR/AI slices
-    // exist, this is as far as the pipeline can go.
-    const reason = 'No course code found in filename/title; text extraction and AI classification are not yet implemented.';
+    // NO_MATCH — no course code found even after including extracted text.
+    const reason = extraction.likelyScanned
+      ? 'No course code found; this looks like a scanned document with no extractable text layer — needs OCR (not yet implemented).'
+      : 'No course code found in title or extracted text; AI classification is not yet implemented.';
+
     await this.prisma.studyMaterial.update({
       where: { id: materialId },
       data: {
         fileHash,
+        ...extractionFields,
         classificationStatus: 'UNABLE_TO_CLASSIFY',
         classificationReason: reason,
         needsReview: true,

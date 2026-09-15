@@ -1,8 +1,22 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { extractCourseCodeCandidates, CourseCodeCandidate } from './course-code.util';
 
-export type CourseMatch = Awaited<ReturnType<ClassificationRulesService['lookupCourseByCode']>>[number];
+// Explicit Prisma payload type instead of deriving from a private method's
+// return type — TS blocks indexed-access types (ClassName['method']) on
+// private/protected members from outside the class, even within the same file.
+export type CourseMatch = Prisma.CourseGetPayload<{
+  include: {
+    program: {
+      include: {
+        department: {
+          include: { school: true };
+        };
+      };
+    };
+  };
+}>;
 
 export type RuleResult =
   | { outcome: 'RESOLVED'; course: CourseMatch; matchedCode: CourseCodeCandidate }
@@ -13,12 +27,7 @@ export type RuleResult =
 export class ClassificationRulesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /**
-   * Looks up Course rows by normalized code, scoped to one university (via
-   * Course -> Program -> Department -> School -> universityId), returning the full
-   * ancestor chain needed to auto-organize a StudyMaterial in one shot.
-   */
-  private async lookupCourseByCode(normalizedCode: string, universityId: string) {
+  private async lookupCourseByCode(normalizedCode: string, universityId: string): Promise<CourseMatch[]> {
     return this.prisma.course.findMany({
       where: {
         code: normalizedCode,

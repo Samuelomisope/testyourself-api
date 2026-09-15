@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Post, Get, Body, Param, Query, UseGuards, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { BadRequestException, Controller, Post, Get, Body, Patch, Param, Query, UseGuards, UseInterceptors, UploadedFile } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AiService } from './ai.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -244,6 +244,20 @@ async listStudyPlans(@CurrentUser() user: AuthUser) {
   return this.aiService.listStudyPlans(user.sub);
 }
 
+@Patch('study-plan/:id/task')
+async toggleTask(
+  @Param('id') id: string,
+  @Body() body: { day: number; taskIndex: number },
+  @CurrentUser() user: AuthUser,
+) {
+  const planId = validateMaterialId(id); // reuses the existing UUID check
+  if (!planId) throw new BadRequestException('Invalid plan ID.');
+  const day = Number(body.day);
+  const taskIndex = Number(body.taskIndex);
+  if (!Number.isInteger(day) || day < 1) throw new BadRequestException('Invalid day.');
+  if (!Number.isInteger(taskIndex) || taskIndex < 0) throw new BadRequestException('Invalid task index.');
+  return this.aiService.toggleTaskCompletion(user.sub, planId, day, taskIndex);
+}
   @Post('flashcards')
   @UseInterceptors(FileInterceptor('file', aiFileInterceptorOptions))
   async generateFlashcards(

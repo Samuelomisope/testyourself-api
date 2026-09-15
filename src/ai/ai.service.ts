@@ -607,6 +607,27 @@ async listStudyPlans(userId: string) {
   });
 }
 
+async toggleTaskCompletion(userId: string, planId: string, day: number, taskIndex: number) {
+  const plan = await this.prisma.studyPlan.findFirst({ where: { id: planId, userId } });
+  if (!plan) throw new NotFoundException('Study plan not found.');
+
+  const completed = { ...(plan.completedTasks as Record<string, number[]>) };
+  const dayKey = String(day);
+  const dayDone = new Set(completed[dayKey] || []);
+
+  if (dayDone.has(taskIndex)) dayDone.delete(taskIndex);
+  else dayDone.add(taskIndex);
+
+  completed[dayKey] = Array.from(dayDone).sort((a, b) => a - b);
+
+  const updated = await this.prisma.studyPlan.update({
+    where: { id: planId },
+    data: { completedTasks: completed as any },
+  });
+
+  return { completedTasks: updated.completedTasks };
+}
+
 
 
   // ─── Fallback: render scanned PDF pages as images and OCR them ────
