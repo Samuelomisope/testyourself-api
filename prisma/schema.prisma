@@ -173,10 +173,12 @@ model StudyMaterial {
   duplicateOfId String?
   duplicateOf   StudyMaterial?  @relation("DuplicateOf", fields: [duplicateOfId], references: [id])
   duplicates    StudyMaterial[] @relation("DuplicateOf")
+    extractedText         String?               @db.Text
+  textExtractionMethod  TextExtractionMethod?
+  needsOcr              Boolean               @default(false)
 
   @@index([fileHash])
   @@index([classificationStatus])
-
 }
 
 model School {
@@ -216,8 +218,8 @@ model Program {
   createdAt              DateTime    @default(now())
   updatedAt              DateTime    @updatedAt
 
-  courses                Course[]
-  crossListedCourses ProgramCourse[]
+  courses                Course[]           // courses owned primarily by this Program
+  crossListedCourses     ProgramCourse[]    // courses shared in from other Programs
 }
 
 model ProgramCourse {
@@ -244,24 +246,24 @@ model Department {
   @@unique([schoolId, name])
 }
 
+
 model Course {
-  id         String   @id @default(uuid())
-  programId  String
-  code       String   // "GNS 106"
-  title      String
-  synopsis   String?  @db.Text
-  level      String?  // "100", "200" — matches StudyMaterial.level type
-  semester   String?  // matches StudyMaterial.semester type
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id             String   @id @default(uuid())
+  programId      String
+  code           String
+  title          String
+  synopsis       String?  @db.Text
+  level          String?
+  semester       String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   program        Program         @relation(fields: [programId], references: [id], onDelete: Cascade)
   studyMaterials StudyMaterial[]
-  crossListedIn ProgramCourse[]
+  crossListedIn  ProgramCourse[] // other Programs this course is shared with
 
   @@unique([programId, code])
 }
-
 
 model MarketplaceItem {
   id           String        @id @default(uuid())
@@ -666,6 +668,7 @@ model StudyPlan {
   startDate    DateTime @default(now())
   createdAt    DateTime @default(now())
   active       Boolean  @default(true)
+  completedTasks Json  @default("{}")
 }
 
 model ChatSession {
@@ -723,3 +726,9 @@ enum ClassificationMethod {
   MANUAL            // admin-entered, bypassing the pipeline entirely
 }
 
+enum TextExtractionMethod {
+  PDF_TEXT_LAYER  // pdf-parse found a text layer
+  DOCX            // mammoth extracted raw text
+  UNSUPPORTED     // legacy .doc, .ppt/.pptx, images, video — no extractor wired up yet
+  OCR
+}

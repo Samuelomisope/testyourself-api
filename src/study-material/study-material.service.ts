@@ -521,35 +521,50 @@ async update(id: string, userId: string, data: {
     return this.prisma.studyMaterial.delete({ where: { id } });
   }
 
-  async findByUniversity(universityId: string, userId: string, filters?: {
-    faculty?: string;
-    department?: string;
-    level?: string;
-    semester?: string;
-    course?: string;
-    search?: string;
-  }) {
-    const materials = await this.prisma.studyMaterial.findMany({
-      where: {
-        universityId,
-        ...(filters?.faculty && { faculty: filters.faculty }),
-        ...(filters?.department && { department: filters.department }),
-        ...(filters?.level && { level: filters.level }),
-        ...(filters?.semester && { semester: filters.semester }),
-        ...(filters?.course && { course: filters.course }),
-        ...(filters?.search && {
-          OR: [
-            { title: { contains: filters.search, mode: 'insensitive' } },
-            { description: { contains: filters.search, mode: 'insensitive' } },
-          ],
-        }),
-        OR: [{ isPublic: true }, { userId }],
+async findByUniversity(universityId: string, userId: string, filters?: {
+  faculty?: string;
+  department?: string;
+  level?: string;
+  semester?: string;
+  course?: string;
+  search?: string;
+}) {
+  const materials = await this.prisma.studyMaterial.findMany({
+    where: {
+      universityId,
+      ...(filters?.faculty && { faculty: filters.faculty }),
+      ...(filters?.department && { department: filters.department }),
+      ...(filters?.level && { level: filters.level }),
+      ...(filters?.semester && { semester: filters.semester }),
+      ...(filters?.course && { course: filters.course }),
+      // Visibility check — always applies, its own AND-ed condition
+      AND: [
+        { OR: [{ isPublic: true }, { userId }] },
+        ...(filters?.search
+          ? [{
+              OR: [
+                { title: { contains: filters.search, mode: 'insensitive' as const } },
+                { description: { contains: filters.search, mode: 'insensitive' as const } },
+              ],
+            }]
+          : []),
+      ],
+    },
+    orderBy: { createdAt: 'desc' },
+    include: {
+      user: { select: { displayName: true, photoURL: true } },
+      courseRef: {
+        include: {
+          program: { include: { department: { include: { school: true } } } },
+          crossListedIn: {
+            include: { program: { include: { department: { include: { school: true } } } } },
+          },
+        },
       },
-      orderBy: { createdAt: 'desc' },
-      include: { user: { select: { displayName: true, photoURL: true } } },
-    });
-    return Promise.all(materials.map((m) => this.withSignedUrl(m)));
-  }
+    },
+  });
+  return Promise.all(materials.map((m) => this.withSignedUrl(m)));
+}
 
   // ── bulkUpdate now (1) verifies the caller owns every id in the batch,
   // instead of blindly updating whatever ids were sent, and (2) whitelists

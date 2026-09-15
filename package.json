@@ -52,6 +52,7 @@
     "helmet": "^8.2.0",
     "ioredis": "^6.0.0",
     "katex": "^0.18.7",
+    "mammoth": "^1.12.3",
     "mime-types": "^3.0.2",
     "multer": "^2.1.1",
     "nodemailer": "^8.0.11",
