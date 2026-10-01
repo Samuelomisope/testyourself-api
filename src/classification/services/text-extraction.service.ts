@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { createCanvas } from 'canvas';
+import { createCanvas } from '@napi-rs/canvas';
 import * as mammoth from 'mammoth';
 import { OCRService } from '../../provider/services/ocr.service';
 
@@ -89,8 +89,7 @@ export class TextExtractionService {
       const viewport = page.getViewport({ scale: 2.0 });
       const canvas = createCanvas(viewport.width, viewport.height);
       const context = canvas.getContext('2d');
-      await page.render({ canvasContext: context as any, viewport, canvas: canvas as any }).promise;
-      const imageBuffer = canvas.toBuffer('image/png');
+      await page.render({ canvas: canvas as any, viewport }).promise;      const imageBuffer = canvas.toBuffer('image/png');
 
       const ocrResult = await this.ocrService.extractText(imageBuffer);
       if (ocrResult.text?.trim()) textParts.push(ocrResult.text);

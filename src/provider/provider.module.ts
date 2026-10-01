@@ -8,7 +8,7 @@ import { TesseractOCRProvider } from './providers/tesseract-ocr.provider';
 import { AIService } from './services/ai.service';
 import { OCRService } from './services/ocr.service';
 import { ImagePreprocessingService } from './services/image-preprocessing.service';
-
+import { VisionLlmOCRProvider } from './providers/vision-llm-ocr.provider';
 /**
  * Shared module hosting the AIService/OCRService abstraction and every
  * concrete provider behind it (Section 3 — ProviderModule, "not duplicated").
@@ -24,6 +24,7 @@ import { ImagePreprocessingService } from './services/image-preprocessing.servic
     GroqProvider,
     GeminiProvider,
     GoogleVisionOCRProvider,
+    VisionLlmOCRProvider,
     TesseractOCRProvider,
     ImagePreprocessingService,
     AIService,

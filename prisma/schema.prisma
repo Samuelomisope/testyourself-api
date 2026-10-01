@@ -659,7 +659,7 @@ model AskUniLibQuery {
 
 model StudyPlan {
   id           String   @id @default(uuid())
-  userId       String
+  userId       String 
   subject      String
   examDate     DateTime?
   daysAvailable Int
@@ -669,6 +669,7 @@ model StudyPlan {
   createdAt    DateTime @default(now())
   active       Boolean  @default(true)
   completedTasks Json  @default("{}")
+   @@index([userId, active])
 }
 
 model ChatSession {

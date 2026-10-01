@@ -5,6 +5,8 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthUser } from '../common/decorators/current-user.decorator';
 import { Throttle } from '@nestjs/throttler';
+import { StudyPlanCoachService } from './study-plan-coach.service';
+
 
 const MAX_AI_FILE_SIZE = 15 * 1024 * 1024;
 const ALLOWED_AI_MIME_TYPES = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/webp']);
@@ -64,7 +66,11 @@ function validateMaterialId(value: unknown): string | undefined {
 @UseGuards(JwtAuthGuard)
 @Throttle({ default: { limit: 15, ttl: 60_000 } })
 export class AiController {
-constructor(private readonly aiService: AiService) {}
+ constructor(
+     private readonly aiService: AiService,
+     private readonly coachService: StudyPlanCoachService,
+   ) {}
+
 
 @Post('quiz')
 @UseInterceptors(FileInterceptor('file', aiFileInterceptorOptions))
@@ -258,6 +264,14 @@ async toggleTask(
   if (!Number.isInteger(taskIndex) || taskIndex < 0) throw new BadRequestException('Invalid task index.');
   return this.aiService.toggleTaskCompletion(user.sub, planId, day, taskIndex);
 }
+
+  @Get('study-plan/:id/coach')
+   @Throttle({ default: { limit: 10, ttl: 60_000 } })
+   async getStudyPlanCoach(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+     const planId = validateMaterialId(id); // same UUID check you use in toggleTask
+     if (!planId) throw new BadRequestException('Invalid plan ID.');
+     return this.coachService.getCoachMessage(user.sub, planId);
+   }
   @Post('flashcards')
   @UseInterceptors(FileInterceptor('file', aiFileInterceptorOptions))
   async generateFlashcards(

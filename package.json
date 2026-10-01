@@ -26,6 +26,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1063.0",
     "@google-cloud/vision": "^6.1.0",
     "@google/generative-ai": "^0.24.1",
+    "@napi-rs/canvas": "^1.0.9",
     "@nest-lab/throttler-storage-redis": "^1.2.0",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.4",
