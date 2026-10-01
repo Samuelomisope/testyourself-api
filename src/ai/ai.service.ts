@@ -5,7 +5,9 @@ import { createHash } from 'crypto';
 import { CacheService } from '../redis/cache.service';
 import { AIService as ProviderAIService } from '../provider/services/ai.service';
 import { OCRService } from '../provider/services/ocr.service';
-import { createCanvas } from 'canvas';
+import { createCanvas } from '@napi-rs/canvas';
+import { UploadService } from '../upload/upload.service'; 
+import { getPlanDayNumber } from './study-plan.utils';
 
 function parseModelJson(raw: string): unknown[] {
   try {
@@ -17,8 +19,8 @@ function parseModelJson(raw: string): unknown[] {
   }
 }
 
-const SUMMARY_TRIGGER_COUNT = 8; // summarize once a session hits a multiple of this
-const RECENT_MESSAGE_COUNT = 4;  // raw messages kept alongside the summary
+const SUMMARY_TRIGGER_COUNT = 8;
+const RECENT_MESSAGE_COUNT = 4;
 
 @Injectable()
 export class AiService {
@@ -27,6 +29,7 @@ export class AiService {
     private readonly cacheService: CacheService,
     private readonly aiService: ProviderAIService,
     private readonly ocrService: OCRService,
+    private readonly uploadService: UploadService
   ) {}
 
   // ─── Extract text from PDF buffer using pdfjs-dist ───────────────
@@ -72,22 +75,22 @@ export class AiService {
   const isPdf = fileMimeType === 'application/pdf' || fileMimeType === 'pdf';
   const buffer = Buffer.from(fileData, 'base64');
 
-  if (isPdf) {
-    const { text, truncated, totalPages } = await this.extractPdfText(buffer);
+if (isPdf) {
+  const { text, truncated, totalPages } = await this.extractPdfText(buffer);
 
-    if (text && text.length >= 20) {
-      const notice = truncated
-        ? `\n\n[Note: This document has ${totalPages} pages; only the first 20 were processed.]`
-        : '';
-      return this.capText(text + notice);
-    }
+  if (text && text.length >= 20 && this.isReadable(text)) {
+    const notice = truncated
+      ? `\n\n[Note: This document has ${totalPages} pages; only the first 20 were processed.]`
+      : '';
+    return this.capText(text + notice);
+  }
 
-    // No usable embedded text — likely a scanned PDF. Fall back to OCR.
-    const ocrResult = await this.ocrScannedPdf(buffer);
-    if (!ocrResult.text || ocrResult.text.length < 20) {
-      throw new BadRequestException(
-        'Could not read enough text from this PDF, even with OCR. Try a clearer scan or paste the content manually.',
-      );
+  // No usable embedded text, likely a scanned PDF. Fall back to OCR.
+  const ocrResult = await this.ocrScannedPdf(buffer);
+  if (!ocrResult.text || ocrResult.text.length < 20 || !this.isReadable(ocrResult.text)) {
+    throw new BadRequestException(
+      'Could not read enough text from this PDF, even with OCR. Try a clearer scan or paste the content manually.',
+    );
     }
     const ocrNotice = ocrResult.truncated
       ? `\n\n[Note: This scanned document has ${ocrResult.totalPages} pages; only the first 10 were processed via OCR.]`
@@ -223,8 +226,20 @@ async getChatSession(userId: string, sessionId: string) {
   if (!session) throw new NotFoundException('Chat session not found.');
   return session;
 }
+private isReadable(text: string): boolean {
+  const words: string[] = text.match(/[A-Za-z]{2,}/g) ?? [];
+  if (words.length < 30) {
+    console.log('isReadable: too few words', words.length);
+    return false;
+  }
+  const withVowel = words.filter((w) => /[aeiouy]/i.test(w)).length / words.length;
+  const avgLen = words.reduce((s, w) => s + w.length, 0) / words.length;
+  const oddCase = words.filter((w) => /[a-z][A-Z]/.test(w)).length / words.length;
 
-// ─── Resolve a library material (by ID) down to plain text ────────
+  console.log('isReadable:', { words: words.length, withVowel, avgLen, oddCase });
+
+  return withVowel > 0.8 && avgLen >= 3 && avgLen <= 10 && oddCase < 0.05;
+}
 private async resolveMaterialToText(materialId: string): Promise<string> {
   const material = await this.prisma.studyMaterial.findUnique({ where: { id: materialId } });
   if (!material) throw new NotFoundException('Study material not found.');
@@ -232,19 +247,28 @@ private async resolveMaterialToText(materialId: string): Promise<string> {
   const isPdf = material.fileType === 'application/pdf' || material.fileType === 'pdf';
   if (!isPdf) throw new BadRequestException('Only PDF materials are supported.');
 
-  const response = await fetch(material.fileUrl);
-  if (!response.ok) throw new BadRequestException('Could not fetch the study material file.');
+  let buffer: Buffer;
+  try {
+    buffer = await this.uploadService.downloadFile(material.fileUrl);
+  } catch (err) {
+    console.error(`Failed to download material ${materialId} from R2:`, err);
+    throw new BadRequestException('Could not fetch the study material file.');
+  }
 
-  const buffer = Buffer.from(await response.arrayBuffer());
-  const { text: extractedText } = await this.extractPdfText(buffer);
-  if (extractedText && extractedText.length > 100) return extractedText;
+const { text: extractedText } = await this.extractPdfText(buffer);
+if (extractedText && extractedText.length > 100 && this.isReadable(extractedText)) {
+  return this.capText(extractedText);
+}
 
-  const ocrResult = await this.ocrScannedPdf(buffer);
-  if (ocrResult.text && ocrResult.text.length > 100) return ocrResult.text;
-
+const ocrResult = await this.ocrScannedPdf(buffer);
+if (ocrResult.text && ocrResult.text.length > 100 && this.isReadable(ocrResult.text)) {
+  return this.capText(ocrResult.text);
+}
   throw new BadRequestException(
     'This PDF appears to be scanned and has no readable text, even with OCR. Please upload a text-based PDF or paste the content manually.',
   );
+
+  
 }
   // ─── Features ─────────────────────────────────────────────────────
   async generateQuiz(
@@ -272,12 +296,21 @@ private async resolveMaterialToText(materialId: string): Promise<string> {
 Return ONLY a valid JSON array. Format:
 [{"question":"...","options":["A. ...","B. ...","C. ...","D. ..."],"answer":"A. ..."}]
 
+Rules:
+- Never write questions about spelling, typos, OCR artifacts, page labels, or formatting.
+- If the content is mostly unreadable or fragmentary, return exactly [] and nothing else.
+
 Content:
 ${combinedText}`;
 
     const response = await this.aiService.generate(prompt);
-    const questions = parseModelJson(response.text);
-    const result = { questions };
+const questions = parseModelJson(response.text);
+if (questions.length === 0) {
+  throw new BadRequestException(
+    "We couldn't find enough readable content to build a quiz from this document.",
+  );
+}
+const result = { questions };
 
     await this.saveGeneration(userId, 'quiz', text?.slice(0, 80) || 'Quiz', { text, count, difficulty }, result);
     await this.cacheService.set(cacheKey, result, 86400);
@@ -291,8 +324,8 @@ ${combinedText}`;
   count: number = 5,
   difficulty: string = 'Medium',
 ) {
-  const cacheKey = `quiz:material:${materialId}:${count}:${difficulty}`;
-  const cached = await this.cacheService.get(cacheKey);
+const cacheKey = `quiz:v2:material:${materialId}:${count}:${difficulty}`;  
+const cached = await this.cacheService.get(cacheKey);
   if (cached) return cached;
 
   const extractedText = await this.resolveMaterialToText(materialId);
@@ -591,8 +624,7 @@ async getCurrentStudyPlan(userId: string) {
 
   if (!plan) return { plan: null, todayEntry: null, dayNumber: null };
 
-  const msPerDay = 24 * 60 * 60 * 1000;
-  const dayNumber = Math.floor((Date.now() - plan.startDate.getTime()) / msPerDay) + 1;
+  const dayNumber = getPlanDayNumber(plan.startDate);
 
   const entries = plan.entries as any[];
   const todayEntry = entries.find((e) => e.day === dayNumber) ?? null;
@@ -607,25 +639,58 @@ async listStudyPlans(userId: string) {
   });
 }
 
+// Drop-in replacement for AiService.toggleTaskCompletion
+//
+// Needs these imports at the top of ai.service.ts (skip any you already have):
+//   import { BadRequestException, NotFoundException } from '@nestjs/common';
+//   import { getPlanDayNumber } from './study-plan.utils';
+
 async toggleTaskCompletion(userId: string, planId: string, day: number, taskIndex: number) {
-  const plan = await this.prisma.studyPlan.findFirst({ where: { id: planId, userId } });
-  if (!plan) throw new NotFoundException('Study plan not found.');
+  return this.prisma.$transaction(async (tx) => {
+    // Lock this plan's row until the transaction ends. Without this, two quick
+    // taps on different tasks send two PATCHes that both read the same old
+    // completedTasks, and the second write silently erases the first.
+    // NOTE: "StudyPlan" is the default table name; change it if you use @@map.
+    await tx.$queryRaw`
+      SELECT id FROM "StudyPlan"
+      WHERE id = ${planId} AND "userId" = ${userId}
+      FOR UPDATE
+    `;
 
-  const completed = { ...(plan.completedTasks as Record<string, number[]>) };
-  const dayKey = String(day);
-  const dayDone = new Set(completed[dayKey] || []);
+    const plan = await tx.studyPlan.findFirst({ where: { id: planId, userId } });
+    if (!plan) throw new NotFoundException('Study plan not found.');
 
-  if (dayDone.has(taskIndex)) dayDone.delete(taskIndex);
-  else dayDone.add(taskIndex);
+    // --- validation (the frontend lock is only a convenience) ---
+    const entries = Array.isArray(plan.entries) ? (plan.entries as any[]) : [];
+    const entry = entries.find((e) => e.day === day);
 
-  completed[dayKey] = Array.from(dayDone).sort((a, b) => a - b);
+    if (!entry) {
+      throw new BadRequestException('That day is not part of this plan.');
+    }
+    if (day > getPlanDayNumber(plan.startDate)) {
+      throw new BadRequestException('That day has not started yet.');
+    }
+    if (taskIndex >= (entry.tasks?.length ?? 0)) {
+      throw new BadRequestException('That task does not exist.');
+    }
 
-  const updated = await this.prisma.studyPlan.update({
-    where: { id: planId },
-    data: { completedTasks: completed as any },
+    // --- toggle ---
+    const completed = { ...((plan.completedTasks ?? {}) as Record<string, number[]>) };
+    const dayKey = String(day);
+    const dayDone = new Set(completed[dayKey] || []);
+
+    if (dayDone.has(taskIndex)) dayDone.delete(taskIndex);
+    else dayDone.add(taskIndex);
+
+    completed[dayKey] = Array.from(dayDone).sort((a, b) => a - b);
+
+    const updated = await tx.studyPlan.update({
+      where: { id: planId },
+      data: { completedTasks: completed as any },
+    });
+
+    return { completedTasks: updated.completedTasks };
   });
-
-  return { completedTasks: updated.completedTasks };
 }
 
 
@@ -638,34 +703,39 @@ private async ocrScannedPdf(buffer: Buffer): Promise<{ text: string; truncated: 
 
   const pageLimit = 10; // OCR is slow per-page; keep this lower than the text-extraction cap
   const pagesToRead = Math.min(pdf.numPages, pageLimit);
-  const textParts: string[] = [];
+  const CONCURRENCY = 3; // keep low to avoid provider rate limits
+  const results: string[] = new Array(pagesToRead).fill('');
 
-  for (let i = 1; i <= pagesToRead; i++) {
-    const page = await pdf.getPage(i);
-    const viewport = page.getViewport({ scale: 2.0 }); // higher scale = better OCR accuracy
-    const canvas = createCanvas(viewport.width, viewport.height);
-    const context = canvas.getContext('2d');
+  const ocrPage = async (i: number) => {
+    try {
+      const page = await pdf.getPage(i);
+      const viewport = page.getViewport({ scale: 2.0 }); // higher scale = better OCR accuracy
+      const canvas = createCanvas(viewport.width, viewport.height);
 
-    await page.render({
-  canvasContext: context as any,
-  viewport,
-  canvas: canvas as any,
-}).promise;
-    const imageBuffer = canvas.toBuffer('image/png');
+      await page.render({ canvas: canvas as any, viewport }).promise;
+      const imageBuffer = canvas.toBuffer('image/png');
 
-    const ocrResult = await this.ocrService.extractText(imageBuffer);
-    if (ocrResult.text?.trim()) {
-      textParts.push(`[Page ${i}]\n${ocrResult.text}`);
+      const ocrResult = await this.ocrService.extractText(imageBuffer);
+      if (ocrResult.text?.trim()) {
+        results[i - 1] = `[Page ${i}]\n${ocrResult.text}`;
+      }
+    } catch (err) {
+      console.error(`OCR failed for page ${i}:`, err);
     }
+  };
+
+  for (let start = 1; start <= pagesToRead; start += CONCURRENCY) {
+    const batch: number[] = [];
+    for (let i = start; i < start + CONCURRENCY && i <= pagesToRead; i++) batch.push(i);
+    await Promise.all(batch.map(ocrPage));
   }
 
   return {
-    text: textParts.join('\n\n'),
+    text: results.filter(Boolean).join('\n\n'),
     truncated: pdf.numPages > pageLimit,
     totalPages: pdf.numPages,
   };
 }
-
 private async saveGeneration(userId: string, tool: string, title: string | undefined, input: any, result: any) {
   return this.prisma.aiGeneration.create({
     data: { userId, tool, title: title?.slice(0, 80), input, result },

@@ -3,14 +3,12 @@ import { ConfigService } from '@nestjs/config';
 import { OCRProvider, OCRResult } from '../interfaces/ocr-provider.interface';
 import { GoogleVisionOCRProvider } from '../providers/google-vision-ocr.provider';
 import { TesseractOCRProvider } from '../providers/tesseract-ocr.provider';
+import { VisionLlmOCRProvider } from '../providers/vision-llm-ocr.provider';
 import { ImagePreprocessingService } from './image-preprocessing.service';
 
-// Per-provider timeouts: Vision's failure/success comes back fast (a normal
-// API round-trip), but Tesseract's FIRST run on a fresh install downloads
-// language data before it can even start recognizing text, so it needs a
-// much larger allowance or it looks "broken" when it's just slow once.
 const TIMEOUT_MS_BY_PROVIDER: Record<string, number> = {
   'google-vision': 20_000,
+  'vision-llm': 60_000,
   tesseract: 90_000,
 };
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -25,20 +23,24 @@ export class OCRService {
   private readonly logger = new Logger(OCRService.name);
   private readonly chain: OCRProvider[];
 
-  constructor(
-    private readonly config: ConfigService,
-    private readonly googleVision: GoogleVisionOCRProvider,
-    private readonly tesseract: TesseractOCRProvider,
-    private readonly preprocessing: ImagePreprocessingService,
-  ) {
-    const configured = this.config.get<string>('OCR_PROVIDER_CHAIN');
-    const order = configured ? configured.split(',').map((s) => s.trim()) : ['google-vision', 'tesseract'];
-    const byName: Record<string, OCRProvider> = {
-      'google-vision': this.googleVision,
-      tesseract: this.tesseract,
-    };
-    this.chain = order.map((name) => byName[name]).filter(Boolean);
-  }
+constructor(
+  private readonly config: ConfigService,
+  private readonly googleVision: GoogleVisionOCRProvider,
+  private readonly visionLlm: VisionLlmOCRProvider,
+  private readonly tesseract: TesseractOCRProvider,
+  private readonly preprocessing: ImagePreprocessingService,
+) {
+  const configured = this.config.get<string>('OCR_PROVIDER_CHAIN');
+  const order = configured
+    ? configured.split(',').map((s) => s.trim())
+    : ['google-vision', 'vision-llm', 'tesseract'];
+  const byName: Record<string, OCRProvider> = {
+    'google-vision': this.googleVision,
+    'vision-llm': this.visionLlm,
+    tesseract: this.tesseract,
+  };
+  this.chain = order.map((name) => byName[name]).filter(Boolean);
+}
 
   async extractText(image: Buffer): Promise<OCRResult> {
     const preprocessed = await this.preprocessing.preprocess(image);
