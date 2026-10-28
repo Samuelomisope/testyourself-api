@@ -23,7 +23,12 @@ export class ClassificationJobsService {
   async startPendingJob(requestedById: string) {
     const now = new Date();
     const jobId = await this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(1145131635)`;
+      const [lock] = await tx.$queryRaw<Array<{ locked: boolean }>>`
+        SELECT pg_try_advisory_xact_lock(1145131635) AS locked
+      `;
+      if (!lock?.locked) {
+        throw new ConflictException('Another classification job is being started. Try again shortly.');
+      }
       const activeJob = await tx.classificationJob.findFirst({
         where: { status: { in: ['QUEUED', 'PROCESSING'] } },
         select: { id: true },
