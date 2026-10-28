@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 // Allowed payload keys per event. Anything else is rejected, which is what
 // keeps incidental personal data out.
@@ -34,7 +35,10 @@ export interface EventInput {
 @Injectable()
 export class ActivityTrackingService {
   private readonly logger = new Logger(ActivityTrackingService.name);
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   private validate(e: EventInput, fromClient: boolean) {
     if (!e || typeof e !== 'object' || typeof e.eventType !== 'string' || e.eventType.length > 80) {
@@ -74,10 +78,26 @@ export class ActivityTrackingService {
       if (!e.idempotencyKey) throw new BadRequestException('idempotencyKey is required.');
       this.validate(e, true);
     });
+    const previous = await this.prisma.studentActivityEvent.findMany({
+      where: { studentId, idempotencyKey: { in: events.map((event) => event.idempotencyKey!) } },
+      select: { idempotencyKey: true },
+    });
+    const previouslyAccepted = new Set(previous.map((event) => event.idempotencyKey));
     const result = await this.prisma.studentActivityEvent.createMany({
       data: events.map((e) => this.toRow(studentId, e)),
       skipDuplicates: true,
     });
+    if (result.count > 0) {
+      const notifiedKeys = new Set<string>();
+      const newEvents = events.filter((event) => {
+        if (previouslyAccepted.has(event.idempotencyKey!) || notifiedKeys.has(event.idempotencyKey!)) return false;
+        notifiedKeys.add(event.idempotencyKey!);
+        return true;
+      });
+      await Promise.all(newEvents.map((event) =>
+        this.notifications.notifyActivity(studentId, event.eventType, event.payload),
+      ));
+    }
     return { accepted: result.count };
   }
 

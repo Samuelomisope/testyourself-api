@@ -11,6 +11,7 @@ import { JwtService } from '@nestjs/jwt';
 import { Server, Socket } from 'socket.io';
 import { ChatService } from './chat.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 const ALLOWED_ORIGINS = new Set([
   'https://unilib.com.ng',
@@ -37,6 +38,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly chatService: ChatService,
     private readonly jwtService: JwtService,
     private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async handleConnection(client: Socket) {
@@ -131,6 +133,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         replyToId: data.replyToId,
       });
       this.server.to(data.roomId).emit('newMessage', message);
+      void this.notifications.notifyChatMessage(
+        data.roomId,
+        message.senderId,
+        message.sender?.displayName || 'A student',
+        message.text || '',
+      );
     } catch {
       client.emit('error', { message: 'Failed to send message' });
     }

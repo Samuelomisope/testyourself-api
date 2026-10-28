@@ -8,6 +8,7 @@ import { OCRService } from '../provider/services/ocr.service';
 import { createCanvas } from '@napi-rs/canvas';
 import { UploadService } from '../upload/upload.service'; 
 import { getPlanDayNumber } from './study-plan.utils';
+import { NotificationsService } from '../notifications/notifications.service';
 
 function parseModelJson(raw: string): unknown[] {
   try {
@@ -29,7 +30,8 @@ export class AiService {
     private readonly cacheService: CacheService,
     private readonly aiService: ProviderAIService,
     private readonly ocrService: OCRService,
-    private readonly uploadService: UploadService
+    private readonly uploadService: UploadService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   // ─── Extract text from PDF buffer using pdfjs-dist ───────────────
@@ -183,6 +185,7 @@ async chat(
     ],
   });
   await this.prisma.chatSession.update({ where: { id: session.id }, data: { updatedAt: new Date() } });
+  await this.notifications.notifyAiReply(userId);
 
   const totalMessages = await this.prisma.chatMessage.count({ where: { sessionId: session.id } });
   if (totalMessages % SUMMARY_TRIGGER_COUNT === 0) {

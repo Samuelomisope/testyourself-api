@@ -33,10 +33,13 @@ import { ProgramModule } from './program/program.module';
 import { CoursesModule } from './courses/courses.module';
 import { AIAssistantModule } from './ai-assistant/ai-assistant.module';
 import { ClassificationModule } from './classification/classification.module';
+import { ScheduleModule } from '@nestjs/schedule';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
  imports: [
   ConfigModule.forRoot({ isGlobal: true }),
+  ScheduleModule.forRoot(),
   ThrottlerModule.forRootAsync({
     useFactory: () => ({
       throttlers: [
@@ -69,6 +72,7 @@ import { ClassificationModule } from './classification/classification.module';
     ProgramModule,
     CoursesModule,
     ClassificationModule,
+    NotificationsModule,
   ],
   controllers: [SearchController, AppController],
 providers: [
