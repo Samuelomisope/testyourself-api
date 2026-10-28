@@ -16,21 +16,22 @@ export class EmailService {
         html,
         text: text || html.replace(/<[^>]*>/g, ''),
       });
-      this.logger.log(`Email sent to ${to}: ${result.data?.id}`);
+      this.logger.log(`Email sent (${result.data?.id ?? 'provider id unavailable'})`);
       return result;
     } catch (error) {
-      this.logger.error(`Failed to send email to ${to}:`, error);
+      this.logger.error(`Email delivery failed (${error instanceof Error ? error.name : 'unknown error'})`);
       throw error;
     }
   }
 
   async sendReEngagementEmail(to: string, displayName: string) {
+    const safeName = displayName.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!);
     return this.sendEmail(
       to,
       'We miss you on UNILIB! 👋',
       `
       <div style="font-family: sans-serif; max-width: 500px; margin: auto;">
-        <h2 style="color: #7c3aed;">Hey ${displayName}! 👋</h2>
+        <h2 style="color: #7c3aed;">Hey ${safeName}! 👋</h2>
         <p>We noticed you haven't been active on <b>UNILIB</b> lately.</p>
         <p>Come back and explore new study materials, connect with your university community, and keep your streak alive!</p>
         <a href="https://unilib.com.ng" style="display:inline-block; margin-top:16px; padding: 12px 24px; background:#7c3aed; color:white; border-radius:8px; text-decoration:none; font-weight:bold;">

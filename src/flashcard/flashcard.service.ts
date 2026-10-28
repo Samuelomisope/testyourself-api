@@ -68,7 +68,7 @@ export class FlashcardService {
     });
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, userId: string) {
     const deck = await this.prisma.flashcardDeck.findUnique({
       where: { id },
       include: {
@@ -77,6 +77,7 @@ export class FlashcardService {
       },
     });
     if (!deck) throw new NotFoundException('Flashcard deck not found');
+    if (!deck.isPublic && deck.userId !== userId) throw new NotFoundException('Flashcard deck not found');
     return deck;
   }
 
@@ -95,13 +96,23 @@ export class FlashcardService {
   if (!deck) throw new NotFoundException('Flashcard deck not found');
   if (deck.userId !== userId) throw new ForbiddenException('Not your deck');
 
-  await this.prisma.flashcard.deleteMany({ where: { deckId: id } });
-  return this.prisma.flashcardDeck.delete({ where: { id } });
+  return this.prisma.$transaction(async (tx) => {
+    const cards = await tx.flashcard.findMany({ where: { deckId: id }, select: { id: true } });
+    const ids = cards.map((card) => card.id);
+    if (ids.length) {
+      await tx.flashcardReviewLog.deleteMany({ where: { flashcardId: { in: ids } } });
+      await tx.flashcardProgress.deleteMany({ where: { flashcardId: { in: ids } } });
+      await tx.flashcard.deleteMany({ where: { id: { in: ids } } });
+    }
+    return tx.flashcardDeck.delete({ where: { id } });
+  });
 }
   // ── REVIEW (SM-2) ─────────────────────────────────────
 
   // Cards due for this user right now, across a specific deck
   async getDueCards(deckId: string, userId: string) {
+    const deck = await this.prisma.flashcardDeck.findUnique({ where: { id: deckId }, select: { id: true, isPublic: true, userId: true } });
+    if (!deck || (!deck.isPublic && deck.userId !== userId)) throw new NotFoundException('Flashcard deck not found');
     const cards = await this.prisma.flashcard.findMany({
       where: { deckId },
       include: {
@@ -128,8 +139,9 @@ export class FlashcardService {
   }
 
   async reviewCard(flashcardId: string, userId: string, rating: ReviewRating) {
-    const card = await this.prisma.flashcard.findUnique({ where: { id: flashcardId } });
+    const card = await this.prisma.flashcard.findUnique({ where: { id: flashcardId }, include: { deck: true } });
     if (!card) throw new NotFoundException('Flashcard not found');
+    if (!card.deck.isPublic && card.deck.userId !== userId) throw new NotFoundException('Flashcard not found');
 
     const existing = await this.prisma.flashcardProgress.findUnique({
       where: { userId_flashcardId: { userId, flashcardId } },

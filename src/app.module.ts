@@ -16,7 +16,6 @@ import { UploadModule } from './upload/upload.module';
 import { ChatModule } from './chat/chat.module';
 import { AiModule } from './ai/ai.module';
 import { FeedbackModule } from './feedback/feedback.module';
-import { AnnouncementModule } from './announcement/announcement.module';
 import { FlashcardModule } from './flashcard/flashcard.module';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { SignedUrlInterceptor } from './common/signed-url.interceptor';
@@ -62,7 +61,6 @@ import { ClassificationModule } from './classification/classification.module';
     AiModule,
     AIAssistantModule,
     FeedbackModule,
-    AnnouncementModule,
     FlashcardModule,
     NovelsModule,
     RedisModule,
@@ -73,7 +71,7 @@ import { ClassificationModule } from './classification/classification.module';
     ClassificationModule,
   ],
   controllers: [SearchController, AppController],
- providers: [PrismaService, 
+providers: [
   
   AppService,
     {

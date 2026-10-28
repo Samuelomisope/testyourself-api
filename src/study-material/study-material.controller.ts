@@ -10,6 +10,22 @@ import { AdminGuard } from '../auth/admin.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthUser } from '../common/decorators/current-user.decorator';
 import { PrismaService } from '../prisma/prisma.service';
+import { validateUploadedFile } from '../common/file-signature';
+
+const MAX_MATERIAL_UPLOAD_SIZE = 100 * 1024 * 1024;
+const materialFileOptions = {
+  limits: { fileSize: MAX_MATERIAL_UPLOAD_SIZE },
+  fileFilter: (_req: unknown, file: Express.Multer.File, callback: (error: Error | null, accept: boolean) => void) => {
+    const types = new Set([
+      'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'image/jpeg', 'image/png', 'image/webp', 'text/plain', 'video/mp4', 'video/quicktime', 'video/x-msvideo',
+      'video/x-matroska', 'video/webm', 'application/octet-stream',
+    ]);
+    if (!types.has(file.mimetype)) return callback(new BadRequestException('Unsupported file type.'), false);
+    callback(null, true);
+  },
+};
 
 @Controller('study-material')
 @UseGuards(JwtAuthGuard)
@@ -26,7 +42,7 @@ export class StudyMaterialController {
   }
 
 @Post('upload')
-@UseInterceptors(FileInterceptor('file'))
+@UseInterceptors(FileInterceptor('file', materialFileOptions))
 async upload(
   @UploadedFile() file: Express.Multer.File,
   @Body() body: {
@@ -47,6 +63,7 @@ async upload(
   if (!user) throw new NotFoundException('User not found');
   if (!file) throw new BadRequestException('No file provided');
   if (file.size > 100 * 1024 * 1024) throw new BadRequestException('File too large. Maximum size is 100MB.');
+  validateUploadedFile(file);
 
   let universityId = user.universityId;
   if (body.university) {
@@ -202,7 +219,15 @@ async update(
   }
 
 @Post('bulk-upload')
-@UseInterceptors(FileInterceptor('zipFile', { limits: { fileSize: 250 * 1024 * 1024 } }))
+@UseInterceptors(FileInterceptor('zipFile', {
+  limits: { fileSize: 100 * 1024 * 1024 },
+  fileFilter: (_req: unknown, file: Express.Multer.File, callback: (error: Error | null, accept: boolean) => void) => {
+    if (!['application/zip', 'application/x-zip-compressed', 'application/octet-stream'].includes(file.mimetype)) {
+      return callback(new BadRequestException('A ZIP archive is required.'), false);
+    }
+    callback(null, true);
+  },
+}))
 async bulkUpload(
   @UploadedFile() file: Express.Multer.File,
   @Body() body: {
@@ -218,6 +243,9 @@ async bulkUpload(
   const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
   if (!user) throw new NotFoundException('User not found');
   if (!file) throw new BadRequestException('No zip file provided');
+  if (!file.buffer.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]))) {
+    throw new BadRequestException('Uploaded file is not a valid ZIP archive.');
+  }
   if (!body.programId) throw new BadRequestException('Program is required for bulk upload.');
 
   let universityId = body.universityId || user.universityId;   // ← prefer explicit id

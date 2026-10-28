@@ -240,9 +240,12 @@ private isReadable(text: string): boolean {
 
   return withVowel > 0.8 && avgLen >= 3 && avgLen <= 10 && oddCase < 0.05;
 }
-private async resolveMaterialToText(materialId: string): Promise<string> {
+private async resolveMaterialToText(materialId: string, userId: string): Promise<string> {
   const material = await this.prisma.studyMaterial.findUnique({ where: { id: materialId } });
   if (!material) throw new NotFoundException('Study material not found.');
+  if (!material.isPublic && material.userId !== userId) {
+    throw new NotFoundException('Study material not found.');
+  }
 
   const isPdf = material.fileType === 'application/pdf' || material.fileType === 'pdf';
   if (!isPdf) throw new BadRequestException('Only PDF materials are supported.');
@@ -325,10 +328,10 @@ const result = { questions };
   difficulty: string = 'Medium',
 ) {
 const cacheKey = `quiz:v2:material:${materialId}:${count}:${difficulty}`;  
+const extractedText = await this.resolveMaterialToText(materialId, userId);
 const cached = await this.cacheService.get(cacheKey);
   if (cached) return cached;
 
-  const extractedText = await this.resolveMaterialToText(materialId);
   const result = await this.generateQuiz(userId, extractedText, count, difficulty);
   await this.cacheService.set(cacheKey, result, 86400);
   return result;
@@ -342,7 +345,7 @@ const cached = await this.cacheService.get(cacheKey);
   materialId?: string,
 ) {
   const sourceText = materialId
-    ? await this.resolveMaterialToText(materialId)
+    ? await this.resolveMaterialToText(materialId, userId)
     : [text, await this.resolveFileToText(fileData, fileMimeType)].filter(Boolean).join('\n\n');
 
   if (!sourceText) throw new BadRequestException('Provide text, a file, or a material ID.');
@@ -373,7 +376,7 @@ async generatePracticeProblems(
   materialId?: string,
 ) {
   const sourceText = materialId
-    ? await this.resolveMaterialToText(materialId)
+    ? await this.resolveMaterialToText(materialId, userId)
     : [text, await this.resolveFileToText(fileData, fileMimeType)].filter(Boolean).join('\n\n');
 
   if (!sourceText) throw new BadRequestException('Provide text, a file, or a material ID.');
@@ -404,7 +407,7 @@ async explainFromMaterial(userId: string, materialId: string, level: string = 'D
   const cached = await this.cacheService.get(cacheKey);
   if (cached) return cached;
 
-  const extractedText = await this.resolveMaterialToText(materialId);
+  const extractedText = await this.resolveMaterialToText(materialId, userId);
   const result = await this.explain(userId, extractedText, level);
   await this.cacheService.set(cacheKey, result, 86400);
   return result;

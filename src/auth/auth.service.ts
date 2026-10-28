@@ -25,7 +25,7 @@ export class AuthService {
       audience: process.env.GOOGLE_CLIENT_ID,
     });
     const payload = ticket.getPayload();
-    if (!payload?.email) {
+    if (!payload?.email || payload.email_verified !== true) {
       throw new UnauthorizedException('Invalid Google token');
     }
 
@@ -45,9 +45,10 @@ export class AuthService {
 
     if (!user) {
       user = await this.prisma.user.create({
-        data: { googleId, email, displayName: name, photoURL: picture },
+        data: { googleId, email, displayName: name || email.split('@')[0], photoURL: picture },
       });
     }
+    if (user.isBanned) throw new UnauthorizedException('This account is unavailable.');
 
     await this.updateStreak(user.id); 
     return this.issueTokens(user, deviceInfo);
@@ -75,7 +76,7 @@ export class AuthService {
     return { accessToken, refreshToken, user };
   }
 
-  async refreshAccessToken(refreshToken: string) {
+  async refreshAccessToken(refreshToken: string, deviceInfo?: string) {
     let payload: { sub: string };
     try {
       payload = this.jwtService.verify(refreshToken, {
@@ -88,23 +89,22 @@ export class AuthService {
     const tokenHash = hashToken(refreshToken);
     const stored = await this.prisma.refreshToken.findUnique({ where: { tokenHash } });
 
-    if (!stored || stored.revokedAt || stored.expiresAt < new Date()) {
+    if (!stored || stored.revokedAt || stored.expiresAt < new Date() || stored.userId !== payload.sub) {
       throw new UnauthorizedException('Session revoked or expired');
     }
 
     const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
     if (!user) throw new UnauthorizedException('User not found');
+    if (user.isBanned) throw new UnauthorizedException('This account is unavailable.');
 
-     await this.updateStreak(user.id);
-  return this.jwtService.sign(
-    { sub: user.id, email: user.email },
-    { expiresIn: '15m' },
-  );
-
-    return this.jwtService.sign(
-      { sub: user.id, email: user.email },
-      { expiresIn: '15m' },
-    );
+    const revoked = await this.prisma.refreshToken.updateMany({
+      where: { id: stored.id, revokedAt: null, expiresAt: { gt: new Date() } },
+      data: { revokedAt: new Date() },
+    });
+    if (revoked.count !== 1) throw new UnauthorizedException('Session revoked or expired');
+    const tokens = await this.issueTokens(user, deviceInfo ?? stored.deviceInfo ?? undefined);
+    await this.updateStreak(user.id);
+    return tokens;
   }
 
   /** Revoke a single refresh token — used on logout. */

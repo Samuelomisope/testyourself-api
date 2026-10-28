@@ -3,6 +3,8 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthUser } from '../common/decorators/current-user.decorator';
 import { Controller, Get, Patch, Body, UseGuards, Query, Post } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 
 @Controller('users')
 @UseGuards(JwtAuthGuard)
@@ -16,6 +18,7 @@ export class UsersController {
 
   @Get('search')
   async searchUsers(@Query('q') q: string) {
+    if (typeof q !== 'string' || q.trim().length < 2 || q.length > 64) throw new BadRequestException('Search must be between 2 and 64 characters.');
     return this.usersService.searchUsers(q);
   }
 
@@ -35,20 +38,8 @@ async getMyActivity(
   @Patch('me')
   async updateMe(
     @CurrentUser() user: AuthUser,
-    @Body() body: {
-      displayName?: string;
-      photoURL?: string;
-      bio?: string;
-      faculty?: string;
-      department?: string;
-      universityId?: string;
-      chatSnapUsername?: string;
-      chatWallpaper?: any;
-    },
+    @Body() body: UpdateProfileDto,
   ) {
-    if (body.chatWallpaper && typeof body.chatWallpaper === 'object') {
-      body.chatWallpaper = body.chatWallpaper.id;
-    }
     return this.usersService.updateProfile(user.sub, body);
   }
 

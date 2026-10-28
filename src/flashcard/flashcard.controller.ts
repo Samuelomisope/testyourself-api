@@ -7,6 +7,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthUser } from '../common/decorators/current-user.decorator';
 import { PrismaService } from '../prisma/prisma.service';
 import { ReviewRating } from './sm2';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 @Controller('flashcards')
 @UseGuards(JwtAuthGuard)
@@ -27,8 +28,9 @@ export class FlashcardController {
     @CurrentUser() currentUser: AuthUser,
   ) {
     const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
-    if (!user) throw new Error('User not found');
-    if (!user.universityId) throw new Error('University not set. Please set your university in your profile.');
+    if (!user) throw new NotFoundException('User not found');
+    if (!user.universityId) throw new BadRequestException('University not set. Please set your university in your profile.');
+    if (!Array.isArray(body.cards) || body.cards.length > 500) throw new BadRequestException('Provide no more than 500 cards.');
 
     return this.flashcardService.createDeck({
       title: body.title,
@@ -55,8 +57,8 @@ export class FlashcardController {
   }
 
   @Get('decks/:id')
-  async findOne(@Param('id') id: string) {
-    return this.flashcardService.findOne(id);
+  async findOne(@Param('id') id: string, @CurrentUser() currentUser: AuthUser) {
+    return this.flashcardService.findOne(id, currentUser.sub);
   }
 
   @Post('decks/:id/cards')
@@ -66,14 +68,15 @@ export class FlashcardController {
     @CurrentUser() currentUser: AuthUser,
   ) {
     const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
-    if (!user) throw new Error('User not found');
+    if (!user) throw new NotFoundException('User not found');
+    if (!Array.isArray(body.cards) || body.cards.length < 1 || body.cards.length > 500) throw new BadRequestException('Provide between 1 and 500 cards.');
     return this.flashcardService.addCards(id, user.id, body.cards);
   }
 
   @Delete('decks/:id')
   async deleteDeck(@Param('id') id: string, @CurrentUser() currentUser: AuthUser) {
     const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
-    if (!user) throw new Error('User not found');
+    if (!user) throw new NotFoundException('User not found');
     return this.flashcardService.deleteDeck(id, user.id);
   }
 
@@ -93,7 +96,8 @@ export class FlashcardController {
     @CurrentUser() currentUser: AuthUser,
   ) {
     const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
-    if (!user) throw new Error('User not found');
+    if (!user) throw new NotFoundException('User not found');
+    if (!['AGAIN', 'HARD', 'GOOD', 'EASY'].includes(body.rating)) throw new BadRequestException('Invalid review rating.');
     return this.flashcardService.reviewCard(id, user.id, body.rating);
   }
 }

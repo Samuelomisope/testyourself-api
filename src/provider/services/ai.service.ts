@@ -14,6 +14,13 @@ import { GeminiProvider } from '../providers/gemini.provider';
 const DEFAULT_TIMEOUT_MS = 20_000;
 const MAX_RETRIES_PER_PROVIDER = 1;
 
+// 4xx responses (bad request, auth, billing, model not found, rate limit) won't
+// succeed on an immediate retry, so move straight to the next provider.
+function isNonRetryable(err: unknown): boolean {
+  const status = (err as { status?: number })?.status;
+  return typeof status === 'number' && status >= 400 && status < 500 && status !== 408 && status !== 409;
+}
+
 /**
  * Single entry point the rest of the app calls instead of talking to any
  * concrete AIProvider directly. Owns provider selection (via config),
@@ -91,6 +98,7 @@ async understandImage(image: Buffer, question?: string, mimeType?: string): Prom
               (err as Error).message
             }`,
           );
+          if (isNonRetryable(err)) break;
         }
       }
     }

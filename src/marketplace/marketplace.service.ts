@@ -1,9 +1,10 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { UploadService } from '../upload/upload.service';
 
 @Injectable()
 export class MarketplaceService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private readonly uploadService: UploadService) {}
 
   // ── Helper: get DB user from Firebase UID ────────────────────────
  private async getDbUser(userId: string) {
@@ -44,6 +45,12 @@ export class MarketplaceService {
     universityId?: string;
   }) {
     const { search, category, type, condition, minPrice, maxPrice, universityId } = filters;
+    if ((minPrice !== undefined && (!Number.isFinite(minPrice) || minPrice < 0)) ||
+        (maxPrice !== undefined && (!Number.isFinite(maxPrice) || maxPrice < 0)) ||
+        (minPrice !== undefined && maxPrice !== undefined && minPrice > maxPrice) ||
+        (search?.length ?? 0) > 100) throw new BadRequestException('Invalid listing filters.');
+    if (type && !['PHYSICAL', 'DIGITAL', 'SERVICE'].includes(type)) throw new BadRequestException('Invalid listing type.');
+    if (condition && !['NEW', 'GOOD', 'FAIR', 'POOR'].includes(condition)) throw new BadRequestException('Invalid condition.');
 
     return this.prisma.marketplaceItem.findMany({
       where: {
@@ -114,7 +121,9 @@ export class MarketplaceService {
     condition?: string;
     tags?: string[];
   }) {
+    this.validateListing(data);
     const user = await this.getDbUser(firebaseUid);
+    this.validateListingImages(data.images ?? [], user.id);
     if (!user.universityId) throw new ForbiddenException('You must belong to a university to list items');
 
     return this.prisma.marketplaceItem.create({
@@ -126,8 +135,8 @@ export class MarketplaceService {
         price: data.price,
         images: data.images || [],
         category: data.category,
-        type: (data.type as any) || 'PHYSICAL',
-        condition: (data.condition as any) || 'GOOD',
+        type: data.type || 'PHYSICAL',
+        condition: data.condition || 'GOOD',
         tags: data.tags || [],
       },
     });
@@ -143,7 +152,9 @@ export class MarketplaceService {
     condition?: string;
     tags?: string[];
   }) {
+    this.validateListing(data, true);
     const user = await this.getDbUser(firebaseUid);
+    if (data.images !== undefined) this.validateListingImages(data.images, user.id);
     const item = await this.prisma.marketplaceItem.findUnique({ where: { id } });
     if (!item) throw new NotFoundException('Listing not found');
     if (item.userId !== user.id) throw new ForbiddenException('Not your listing');
@@ -156,8 +167,8 @@ export class MarketplaceService {
       ...(typeof data.price === 'number' && Number.isFinite(data.price) && { price: data.price }),
       ...(Array.isArray(data.images) && { images: data.images }),
       ...(typeof data.category === 'string' && { category: data.category }),
-      ...(typeof data.type === 'string' && { type: data.type as any }),
-      ...(typeof data.condition === 'string' && { condition: data.condition as any }),
+      ...(typeof data.type === 'string' && { type: data.type }),
+      ...(typeof data.condition === 'string' && { condition: data.condition }),
       ...(Array.isArray(data.tags) && { tags: data.tags }),
     };
 
@@ -175,7 +186,16 @@ export class MarketplaceService {
 
   // ── Reviews ──────────────────────────────────────────────────────
   async addReview(firebaseUid: string, itemId: string, data: { rating: number; comment?: string }) {
+    if (!Number.isInteger(data.rating) || data.rating < 1 || data.rating > 5 || (data.comment?.length ?? 0) > 1_000) {
+      throw new BadRequestException('Rating must be an integer from 1 to 5 and comment must be at most 1,000 characters.');
+    }
     const user = await this.getDbUser(firebaseUid);
+
+    const itemOwner = await this.prisma.marketplaceItem.findUnique({ where: { id: itemId }, select: { userId: true } });
+    if (!itemOwner) throw new NotFoundException('Listing not found');
+    if (itemOwner.userId === user.id) throw new ForbiddenException('You cannot review your own listing.');
+    const existingReview = await this.prisma.review.findFirst({ where: { userId: user.id, itemId } });
+    if (existingReview) throw new ConflictException('You have already reviewed this listing.');
 
     const review = await this.prisma.review.create({
       data: { userId: user.id, itemId, rating: data.rating, comment: data.comment },
@@ -213,6 +233,37 @@ export class MarketplaceService {
     }
 
     return review;
+  }
+
+  private validateListing(data: Record<string, any>, partial = false) {
+    if (!partial || data.title !== undefined) {
+      if (typeof data.title !== 'string' || !data.title.trim() || data.title.length > 120) throw new BadRequestException('Title must be 1 to 120 characters.');
+    }
+    if (!partial || data.description !== undefined) {
+      if (typeof data.description !== 'string' || !data.description.trim() || data.description.length > 10_000) throw new BadRequestException('Description must be 1 to 10,000 characters.');
+    }
+    if (!partial || data.price !== undefined) {
+      if (typeof data.price !== 'number' || !Number.isFinite(data.price) || data.price < 0 || data.price > 1_000_000_000) throw new BadRequestException('Price is invalid.');
+    }
+    if (data.type !== undefined && !['PHYSICAL', 'DIGITAL', 'SERVICE'].includes(data.type)) throw new BadRequestException('Invalid listing type.');
+    if (data.condition !== undefined && !['NEW', 'GOOD', 'FAIR', 'POOR'].includes(data.condition)) throw new BadRequestException('Invalid condition.');
+    for (const field of ['images', 'tags'] as const) {
+      if (data[field] !== undefined && (!Array.isArray(data[field]) || data[field].length > 20 || data[field].some((v: unknown) => typeof v !== 'string' || v.length > 2_000))) {
+        throw new BadRequestException(`${field} must contain at most 20 short strings.`);
+      }
+    }
+    if (data.category !== undefined && (typeof data.category !== 'string' || data.category.length > 80)) throw new BadRequestException('Invalid category.');
+  }
+
+  private validateListingImages(images: string[], userId: string) {
+    for (const image of images) {
+      let url: URL;
+      try { url = new URL(image); } catch { throw new BadRequestException('Listing images must be valid HTTPS URLs.'); }
+      if (url.protocol !== 'https:') throw new BadRequestException('Listing images must use HTTPS.');
+      if (this.uploadService.isStorageReference(image) && !this.uploadService.isOwnedUserUpload(image, userId, 'marketplace')) {
+        throw new ForbiddenException('Listing images must be uploaded by you to the marketplace folder.');
+      }
+    }
   }
 
   // ── Seller Profile ────────────────────────────────────────────────

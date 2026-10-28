@@ -36,14 +36,25 @@ async function bootstrap() {
     crossOriginOpenerPolicy: false,
   }));
 
-  app.enableCors({
-    origin: [
+  const defaultAllowedOrigins = [
       'http://localhost:5173',
       'http://localhost:3000',
       'https://testyourself-nu.vercel.app',
       'https://www.unilib.com.ng',
       'https://unilib.com.ng',
-    ],
+    ];
+  const configuredOrigins = process.env.CORS_ORIGINS
+    ?.split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  const allowedOrigins = configuredOrigins?.length
+    ? configuredOrigins
+    : defaultAllowedOrigins;
+  const corsOrigins = process.env.NODE_ENV === 'production'
+    ? allowedOrigins.filter((origin) => !origin.startsWith('http://localhost:'))
+    : allowedOrigins;
+  app.enableCors({
+    origin: corsOrigins,
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
@@ -69,7 +80,9 @@ async function bootstrap() {
     console.warn('Redis unavailable, continuing without Redis adapter:', err.message);
   }
 
-  await app.listen(3000);
-  console.log('Server running on http://localhost:3000');
+  app.enableShutdownHooks();
+  const port = Number(process.env.PORT) || 3000;
+  await app.listen(port);
+  console.log(`Server listening on port ${port}`);
 }
 bootstrap();

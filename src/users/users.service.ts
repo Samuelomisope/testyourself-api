@@ -1,9 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { UploadService } from '../upload/upload.service';
+import { BadRequestException } from '@nestjs/common';
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private readonly uploadService: UploadService) {}
 
 async getRecentActivity(uid: string, type?: string, days = 7) {
     const user = await this.prisma.user.findUnique({ where: { id: uid } });
@@ -30,7 +32,7 @@ async getRecentActivity(uid: string, type?: string, days = 7) {
         ],
         isBanned: false,
       },
-      select: { id: true, displayName: true, email: true, photoURL: true, chatSnapUsername: true },
+      select: { id: true, displayName: true, photoURL: true, chatSnapUsername: true },
       take: 20,
     });
   }
@@ -52,6 +54,19 @@ async getRecentActivity(uid: string, type?: string, days = 7) {
     chatSnapUsername?: string;
     chatWallpaper?: string;
   }) {
+    if (data.photoURL !== undefined && data.photoURL !== null) {
+      const value = data.photoURL.trim();
+      if (this.uploadService.isStorageReference(value)) {
+        if (!this.uploadService.isOwnedProfilePhoto(value, uid)) {
+          throw new BadRequestException('Profile images must be uploaded to your own profile-pictures folder.');
+        }
+      } else {
+        let url: URL;
+        try { url = new URL(value); } catch { throw new BadRequestException('photoURL must be a valid HTTPS URL.'); }
+        if (url.protocol !== 'https:') throw new BadRequestException('photoURL must use HTTPS.');
+      }
+      data.photoURL = value;
+    }
     return this.prisma.user.update({
       where: { id: uid },
       data,

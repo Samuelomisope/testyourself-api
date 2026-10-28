@@ -29,7 +29,7 @@ export class SignedUrlInterceptor implements NestInterceptor {
     try {
       return await this.uploadService.getSignedUrlForStoredRef(value);
     } catch (err) {
-      console.error('Failed to sign stored ref, returning original value:', value, err);
+      console.error('Failed to sign stored file reference:', err instanceof Error ? err.name : 'unknown error');
       return value;
     }
   }
@@ -44,13 +44,17 @@ export class SignedUrlInterceptor implements NestInterceptor {
     );
   }
 
-  private async signDeep(value: any, parentKey?: string): Promise<any> {
+  private async signDeep(value: any, parentKey?: string, ownerId?: string): Promise<any> {
     if (value === null || value === undefined) return value;
 
     if (Array.isArray(value)) {
       if (parentKey && SIGNABLE_ARRAY_FIELDS.includes(parentKey)) {
         return Promise.all(
-          value.map((v) => (this.looksLikeStorageUrl(v) ? this.signString(v) : v)),
+          value.map((v) => (
+            this.looksLikeStorageUrl(v) && ownerId && this.uploadService.isOwnedUserUpload(v, ownerId, 'marketplace')
+              ? this.signString(v)
+              : v
+          )),
         );
       }
       return Promise.all(value.map((v) => this.signDeep(v)));
@@ -60,9 +64,13 @@ export class SignedUrlInterceptor implements NestInterceptor {
       const entries = await Promise.all(
         Object.entries(value).map(async ([k, v]) => {
           if (SIGNABLE_STRING_FIELDS.includes(k) && this.looksLikeStorageUrl(v)) {
-            return [k, await this.signString(v as string)];
+            const ownerId = typeof value.id === 'string' ? value.id : undefined;
+            if (ownerId && this.uploadService.isOwnedProfilePhoto(v as string, ownerId)) {
+              return [k, await this.signString(v as string)];
+            }
+            return [k, v];
           }
-          return [k, await this.signDeep(v, k)];
+            return [k, await this.signDeep(v, k, typeof value.userId === 'string' ? value.userId : typeof value.id === 'string' ? value.id : ownerId)];
         }),
       );
       return Object.fromEntries(entries);

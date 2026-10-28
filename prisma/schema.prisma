@@ -733,3 +733,19 @@ enum TextExtractionMethod {
   UNSUPPORTED     // legacy .doc, .ppt/.pptx, images, video — no extractor wired up yet
   OCR
 }
+
+model StudentActivityEvent {
+  id             String   @id @default(cuid())
+  studentId      String
+  eventType      String
+  courseId       String?
+  topicId        String?
+  materialId     String?
+  payload        Json?
+  idempotencyKey String
+  createdAt      DateTime @default(now())
+
+  @@index([studentId, eventType, createdAt])
+  @@index([courseId, createdAt])
+  @@unique([studentId, idempotencyKey])
+}

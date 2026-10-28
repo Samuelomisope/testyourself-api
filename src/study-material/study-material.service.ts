@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -11,7 +11,7 @@ import pLimit from 'p-limit';
 const ALLOWED_EXTENSIONS = ['.pdf', '.doc', '.docx', '.ppt', '.pptx', '.txt', '.mp4', '.mov', '.avi', '.mkv', '.webm'];
 const MAX_FILES = 200;
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // same cap as your single upload
-const MAX_TOTAL_UNCOMPRESSED = 1.5 * 1024 * 1024 * 1024;
+const MAX_TOTAL_UNCOMPRESSED = 500 * 1024 * 1024;
 
 // Fields a caller is allowed to touch via bulkUpdate. Anything else
 // (userId, courseId, fileUrl, id, ...) is stripped before it reaches Prisma.
@@ -45,6 +45,7 @@ function mimeTypeFor(filename: string) {
 
 @Injectable()
 export class StudyMaterialService {
+  private readonly logger = new Logger(StudyMaterialService.name);
   private s3: S3Client;
 
   constructor(private prisma: PrismaService) {
@@ -109,7 +110,8 @@ export class StudyMaterialService {
   }
 
   async uploadToR2(buffer: Buffer, originalName: string, mimeType: string): Promise<string> {
-    const key = `study-materials/${uuidv4()}-${originalName}`;
+    const safeName = path.basename(originalName).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120) || 'upload';
+    const key = `study-materials/${uuidv4()}-${safeName}`;
     const command = new PutObjectCommand({
       Bucket: process.env.R2_BUCKET_NAME,
       Key: key,
@@ -249,7 +251,7 @@ export class StudyMaterialService {
       grouped.get(folderName)!.push(entry);
     }
 
-    const limit = pLimit(3); // a few uploads in parallel, gentle on R2/Wasabi and your DB pool
+    const limit = pLimit(2); // bound peak memory while unpacking and uploading
 
     for (const [folderName, entries] of grouped) {
       summary.courses.push(folderName);
@@ -257,6 +259,7 @@ export class StudyMaterialService {
      await Promise.all(
   entries.map((entry) =>
     limit(async () => {
+      let uploadedUrl: string | undefined;
       try {
         const buffer = await entry.buffer();
         if (buffer.length > MAX_FILE_SIZE) {
@@ -272,12 +275,12 @@ export class StudyMaterialService {
         });
 
         const fileName = path.basename(entry.path);
-        const fileUrl = await this.uploadToR2(buffer, fileName, mimeTypeFor(fileName));
+        uploadedUrl = await this.uploadToR2(buffer, fileName, mimeTypeFor(fileName));
 
         await this.prisma.studyMaterial.create({
           data: {
             title: fileName.replace(/\.[^/.]+$/, ''),
-            fileUrl,
+            fileUrl: uploadedUrl,
             fileType: mimeTypeFor(fileName),
             fileSize: buffer.length,
             userId: opts.userId,
@@ -293,6 +296,11 @@ export class StudyMaterialService {
 
         summary.uploaded.push({ file: entry.path, course: folderName });
       } catch (err) {
+        if (uploadedUrl) {
+          try { await this.deleteFromR2(uploadedUrl); } catch (cleanupError) {
+            this.logger.warn(`Failed to clean up upload for ${entry.path}: ${(cleanupError as Error).message}`);
+          }
+        }
         summary.skipped.push({ file: entry.path, reason: err.message });
       }
     }),
@@ -517,8 +525,13 @@ async update(id: string, userId: string, data: {
     const material = await this.prisma.studyMaterial.findUnique({ where: { id } });
     if (!material) throw new NotFoundException('Study material not found');
     if (material.userId !== userId) throw new ForbiddenException('Not your material');
-    await this.deleteFromR2(material.fileUrl);
-    return this.prisma.studyMaterial.delete({ where: { id } });
+    const deleted = await this.prisma.studyMaterial.delete({ where: { id } });
+    try {
+      await this.deleteFromR2(material.fileUrl);
+    } catch (error) {
+      this.logger.error(`Study material ${id} was deleted but its storage object needs cleanup: ${(error as Error).message}`);
+    }
+    return deleted;
   }
 
 async findByUniversity(universityId: string, userId: string, filters?: {

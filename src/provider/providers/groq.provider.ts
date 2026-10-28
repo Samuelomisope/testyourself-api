@@ -90,7 +90,7 @@ async understandImage(image: Buffer, question?: string, mimeType?: string): Prom
   const resolvedMimeType = mimeType?.startsWith('image/') ? mimeType : 'image/jpeg';
 
   const completion = await this.client.chat.completions.create({
-    model: this.config.get<string>('GROQ_VISION_MODEL', 'qwen/qwen3.6-27b'),
+    model: this.config.get<string>('GROQ_VISION_MODEL', 'qwen/qwen3.8-27b'),
     messages: [
       {
         role: 'user',
