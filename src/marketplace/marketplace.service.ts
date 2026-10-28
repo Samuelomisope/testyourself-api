@@ -1,10 +1,15 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { UploadService } from '../upload/upload.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class MarketplaceService {
-  constructor(private prisma: PrismaService, private readonly uploadService: UploadService) {}
+  constructor(
+    private prisma: PrismaService,
+    private readonly uploadService: UploadService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   // ── Helper: get DB user from Firebase UID ────────────────────────
  private async getDbUser(userId: string) {
@@ -221,14 +226,12 @@ export class MarketplaceService {
 
       // Notify seller
       if (item.userId !== user.id) {
-        await this.prisma.notification.create({
-          data: {
-            userId: item.userId,
-            title: 'New Review',
-            body: `${user.displayName} gave your listing "${item.title}" a ${data.rating}-star review.${data.comment ? ` "${data.comment}"` : ''}`,
-            type: 'marketplace',
-          },
-        });
+        await this.notifications.createSystemNotification(
+          item.userId,
+          'New Review',
+          `${user.displayName} gave your listing "${item.title}" a ${data.rating}-star review.${data.comment ? ` "${data.comment}"` : ''}`,
+          'marketplace',
+        );
       }
     }
 

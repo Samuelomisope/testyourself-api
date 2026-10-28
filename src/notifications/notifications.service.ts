@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { getPlanDayNumber } from '../ai/study-plan.utils';
 
@@ -12,11 +13,11 @@ export class NotificationsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async list(userId: string) {
-    const rows = await this.prisma.notification.findMany({
+    const rows = await this.withUserContext(userId, (tx) => tx.notification.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
       take: 50,
-    });
+    }));
     return rows.map((notification) => ({
       id: notification.id,
       title: notification.title,
@@ -32,30 +33,34 @@ export class NotificationsService {
     if (!NOTIFICATION_TYPES.has(type) || typeof message !== 'string' || !message.trim() || message.length > 500) {
       throw new BadRequestException('Invalid notification payload.');
     }
-    return this.prisma.notification.create({
+    return this.withUserContext(userId, (tx) => tx.notification.create({
       data: {
         userId,
         type,
         title: type === 'material' ? 'Study material' : 'Marketplace',
         body: message.trim(),
       },
-    });
+    }));
+  }
+
+  async createSystemNotification(userId: string, title: string, body: string, type: string) {
+    await this.safeCreate(userId, title, body, type);
   }
 
   async markRead(userId: string, notificationId: string) {
-    const result = await this.prisma.notification.updateMany({
+    const result = await this.withUserContext(userId, (tx) => tx.notification.updateMany({
       where: { id: notificationId, userId },
       data: { isRead: true },
-    });
+    }));
     if (!result.count) throw new NotFoundException('Notification not found.');
     return { success: true };
   }
 
   async markAllRead(userId: string) {
-    const result = await this.prisma.notification.updateMany({
+    const result = await this.withUserContext(userId, (tx) => tx.notification.updateMany({
       where: { userId, isRead: false },
       data: { isRead: true },
-    });
+    }));
     return { updated: result.count };
   }
 
@@ -120,18 +125,20 @@ export class NotificationsService {
       if (completed.size >= tasks.length) continue;
 
       try {
-        const alreadySent = await this.prisma.notification.findFirst({
-          where: { userId: plan.userId, type: 'study_plan_reminder', createdAt: { gte: nigeriaDayStartUtc } },
-          select: { id: true },
-        });
-        if (alreadySent) continue;
-        await this.prisma.notification.create({
-          data: {
-            userId: plan.userId,
-            title: 'Study plan reminder',
-            body: `You still have tasks to complete in today's ${plan.subject} study plan.`,
-            type: 'study_plan_reminder',
-          },
+        await this.withUserContext(plan.userId, async (tx) => {
+          const alreadySent = await tx.notification.findFirst({
+            where: { userId: plan.userId, type: 'study_plan_reminder', createdAt: { gte: nigeriaDayStartUtc } },
+            select: { id: true },
+          });
+          if (alreadySent) return;
+          await tx.notification.create({
+            data: {
+              userId: plan.userId,
+              title: 'Study plan reminder',
+              body: `You still have tasks to complete in today's ${plan.subject} study plan.`,
+              type: 'study_plan_reminder',
+            },
+          });
         });
       } catch (error) {
         this.logger.warn(`Could not create study-plan reminder for ${plan.id}: ${(error as Error).message}`);
@@ -141,9 +148,16 @@ export class NotificationsService {
 
   private async safeCreate(userId: string, title: string, body: string, type: string) {
     try {
-      await this.prisma.notification.create({ data: { userId, title, body, type } });
+      await this.withUserContext(userId, (tx) => tx.notification.create({ data: { userId, title, body, type } }));
     } catch (error) {
       this.logger.warn(`Could not create ${type} notification: ${(error as Error).message}`);
     }
+  }
+
+  private withUserContext<T>(userId: string, operation: (tx: Prisma.TransactionClient) => Promise<T>) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT set_config('app.current_user_id', ${userId}, true)`;
+      return operation(tx);
+    });
   }
 }
