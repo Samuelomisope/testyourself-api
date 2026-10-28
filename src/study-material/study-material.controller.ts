@@ -108,6 +108,7 @@ async upload(
     @Query('level') level?: string,
     @Query('semester') semester?: string,
     @Query('course') course?: string,
+    @Query('courseId') courseId?: string,
     @Query('search') search?: string,
     @Query('university') universitySlug?: string,
   ) {
@@ -121,6 +122,7 @@ async upload(
         ...(level && { level }),
         ...(semester && { semester }),
         ...(course && { course }),
+        ...(courseId && { courseId }),
         ...(universitySlug && { university: { slug: universitySlug } }),
       
         AND: [
