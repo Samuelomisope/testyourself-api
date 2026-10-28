@@ -259,7 +259,21 @@ validateFile(mimeType: string): { valid: boolean; reason?: string; normalizedMim
       }
 
       const directorySegments = keySegments.slice(0, -1);
-      return directorySegments.find((segment) => /^[A-Z]{2,5}[\s_-]?\d{3}[A-Z]?$/i.test(segment)) ?? null;
+      const completeCourseFolder = directorySegments.find((segment) =>
+        /^[A-Z]{2,5}[\s_-]?\d{3}[A-Z]?$/i.test(segment),
+      );
+      if (completeCourseFolder) return completeCourseFolder;
+
+      // Some legacy folders split the course code across two levels, e.g.
+      // `CHE/101/` or `PHY/107/`. Rejoin only adjacent segments that together
+      // form a full course code; broad folders such as `CHE/` remain ignored.
+      for (let index = 0; index < directorySegments.length - 1; index++) {
+        const prefix = directorySegments[index].match(/^([A-Z]{2,5})$/i);
+        const number = directorySegments[index + 1].match(/^(\d{3}[A-Z]?)$/i);
+        if (prefix && number) return `${prefix[1]} ${number[1]}`;
+      }
+
+      return null;
     } catch {
       return null;
     }
