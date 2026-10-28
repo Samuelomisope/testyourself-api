@@ -111,7 +111,12 @@ validateFile(mimeType: string): { valid: boolean; reason?: string; normalizedMim
     }
 
     const extraction = await this.textExtraction.extractText(fileBuffer, validation.normalizedMimeType!);
-    const sourceText = [material.title, extraction.text].filter(Boolean).join(' ');
+    const r2CourseFolder = this.getCourseFolderHint(material.fileUrl);
+    // Existing R2 objects may live under paths such as
+    // `1st Semester/EEE 203/EEE 203 - NOTE.pdf`. Use the course folder first so
+    // the deterministic code matcher sees that curated folder label before any
+    // incidental course codes in the document body.
+    const sourceText = [r2CourseFolder, material.title, extraction.text].filter(Boolean).join(' ');
 
     // Extraction metadata is worth persisting even on NEEDS_REVIEW / UNABLE_TO_CLASSIFY
     // outcomes below — it's reused later for OCR routing and RAG chunking, so every
@@ -151,7 +156,10 @@ validateFile(mimeType: string): { valid: boolean; reason?: string; normalizedMim
 
     if (ruleResult.outcome === 'RESOLVED') {
       const { course, matchedCode } = ruleResult;
-      const reason = `Course code "${matchedCode.normalized}" matched exactly one course: ${course.title} (${course.program.department.school.name} > ${course.program.department.name} > ${course.program.name})`;
+      const folderContext = r2CourseFolder
+        ? ` R2 course folder "${r2CourseFolder}" was used as the primary course hint.`
+        : '';
+      const reason = `Course code "${matchedCode.normalized}" matched exactly one course: ${course.title} (${course.program.department.school.name} > ${course.program.department.name} > ${course.program.name}).${folderContext}`;
 
       await this.prisma.studyMaterial.update({
         where: { id: materialId },
@@ -227,6 +235,34 @@ validateFile(mimeType: string): { valid: boolean; reason?: string; normalizedMim
       },
     });
     return { materialId, status: 'UNABLE_TO_CLASSIFY', reason };
+  }
+
+  /**
+   * Read a course-code directory from a stored object path without relying on
+   * the signed URL query string. Only an entire directory segment matching a
+   * course code is accepted; generic folders such as `CSC` or `1st Semester`
+   * are deliberately ignored.
+   */
+  private getCourseFolderHint(fileUrl: string): string | null {
+    try {
+      const url = new URL(fileUrl);
+      const segments = url.pathname.split('/').filter(Boolean).map((segment) => decodeURIComponent(segment));
+      const bucketName = process.env.R2_BUCKET_NAME;
+      let keySegments = segments;
+
+      if (bucketName) {
+        const bucketIndex = segments.indexOf(bucketName);
+        if (bucketIndex >= 0) keySegments = segments.slice(bucketIndex + 1);
+      } else if (url.hostname.endsWith('.r2.cloudflarestorage.com') || url.hostname.includes('.wasabisys.com')) {
+        // S3 path-style URLs put the bucket before the object key.
+        keySegments = segments.slice(1);
+      }
+
+      const directorySegments = keySegments.slice(0, -1);
+      return directorySegments.find((segment) => /^[A-Z]{2,5}[\s_-]?\d{3}[A-Z]?$/i.test(segment)) ?? null;
+    } catch {
+      return null;
+    }
   }
 
   private async tryAiClassification(
