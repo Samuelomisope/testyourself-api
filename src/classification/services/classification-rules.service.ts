@@ -81,4 +81,39 @@ export class ClassificationRulesService {
 
     return { outcome: 'NO_MATCH' };
   }
+
+  /**
+   * Return a small, university-scoped catalog for the AI fallback. The model may
+   * choose only from these rows; the caller still validates its choice against
+   * the returned IDs before storing anything.
+   */
+  async findAICandidates(sourceText: string, universityId: string, limit = 30): Promise<CourseMatch[]> {
+    const stopWords = new Set([
+      'about', 'after', 'answer', 'assignment', 'course', 'exam', 'lecture', 'material',
+      'notes', 'past', 'question', 'questions', 'solution', 'study', 'test', 'theory',
+    ]);
+    const terms = [...new Set((sourceText.toLowerCase().match(/[a-z][a-z0-9-]{3,}/g) ?? [])
+      .filter((term) => !stopWords.has(term)))].slice(0, 8);
+    if (!terms.length) return [];
+
+    return this.prisma.course.findMany({
+      where: {
+        program: { department: { school: { universityId } } },
+        OR: terms.flatMap((term) => [
+          { code: { contains: term, mode: 'insensitive' as const } },
+          { title: { contains: term, mode: 'insensitive' as const } },
+          { synopsis: { contains: term, mode: 'insensitive' as const } },
+        ]),
+      },
+      take: limit,
+      orderBy: [{ code: 'asc' }, { title: 'asc' }],
+      include: {
+        program: {
+          include: {
+            department: { include: { school: true } },
+          },
+        },
+      },
+    });
+  }
 }

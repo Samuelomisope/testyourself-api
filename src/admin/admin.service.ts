@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { StudyMaterialService } from '../study-material/study-material.service';
@@ -259,6 +259,7 @@ async deleteBuyer(id: string) {
       include: {
         user: { select: { displayName: true, photoURL: true } },
         university: { select: { id: true, name: true, shortName: true } },
+        duplicateOf: { select: { id: true, title: true } },
       },
     });
     return Promise.all(materials.map(m => this.studyMaterialService.withSignedUrl(m)));
@@ -277,16 +278,86 @@ async deleteBuyer(id: string) {
     }
     return this.prisma.studyMaterial.update({
       where: { id },
-      data: { courseId, needsReview: false },
+      data: {
+        courseId,
+        needsReview: false,
+        classificationStatus: 'AUTO_ORGANIZED',
+        classificationMethod: 'MANUAL',
+        classificationConfidence: 100,
+        classificationReason: 'Course assignment confirmed by an administrator.',
+      },
     });
   }
 
   // Dismiss: clear the flag without assigning a course
   // (e.g. the title genuinely has no matchable course — reviewed and left as-is)
   async dismissMaterialReview(id: string) {
+    const material = await this.prisma.studyMaterial.findUnique({
+      where: { id },
+      select: { id: true, courseId: true, duplicateOfId: true },
+    });
+    if (!material) throw new NotFoundException('Study material not found');
     return this.prisma.studyMaterial.update({
       where: { id },
-      data: { needsReview: false },
+      data: material.duplicateOfId
+        ? {
+            needsReview: false,
+            duplicateOfId: null,
+            classificationStatus: material.courseId ? 'AUTO_ORGANIZED' : 'UNABLE_TO_CLASSIFY',
+            classificationMethod: material.courseId ? 'MANUAL' : null,
+            classificationConfidence: material.courseId ? 100 : null,
+            classificationReason: 'Possible duplicate was reviewed and not confirmed.',
+          }
+        : { needsReview: false },
+    });
+  }
+
+  async confirmMaterialDuplicate(id: string) {
+    const material = await this.prisma.studyMaterial.findUnique({
+      where: { id },
+      select: { id: true, universityId: true, duplicateOfId: true },
+    });
+    if (!material) throw new NotFoundException('Study material not found');
+    if (!material.duplicateOfId || material.duplicateOfId === material.id) {
+      throw new BadRequestException('This material has no valid duplicate candidate.');
+    }
+    const canonical = await this.prisma.studyMaterial.findUnique({
+      where: { id: material.duplicateOfId },
+      select: { id: true, title: true, universityId: true, isDeleted: true },
+    });
+    if (!canonical || canonical.isDeleted || canonical.universityId !== material.universityId) {
+      throw new BadRequestException('The suggested duplicate is no longer available.');
+    }
+    return this.prisma.studyMaterial.update({
+      where: { id },
+      data: {
+        classificationStatus: 'DUPLICATE',
+        classificationMethod: 'NEAR_DUPLICATE',
+        classificationReason: `Duplicate confirmed by an administrator against "${canonical.title}" (${canonical.id}).`,
+        needsReview: false,
+      },
+    });
+  }
+
+  async restoreMaterialDuplicate(id: string) {
+    const material = await this.prisma.studyMaterial.findUnique({
+      where: { id },
+      select: { id: true, courseId: true, classificationStatus: true },
+    });
+    if (!material) throw new NotFoundException('Study material not found');
+    if (material.classificationStatus !== 'DUPLICATE') {
+      throw new BadRequestException('This material is not marked as a duplicate.');
+    }
+    return this.prisma.studyMaterial.update({
+      where: { id },
+      data: {
+        classificationStatus: material.courseId ? 'AUTO_ORGANIZED' : 'NEEDS_REVIEW',
+        classificationMethod: material.courseId ? 'MANUAL' : null,
+        classificationConfidence: material.courseId ? 100 : null,
+        classificationReason: 'Restored to the library by an administrator.',
+        duplicateOfId: null,
+        needsReview: !material.courseId,
+      },
     });
   }
 

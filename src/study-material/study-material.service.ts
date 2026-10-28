@@ -482,7 +482,7 @@ async update(id: string, userId: string, data: {
 
   async findByUser(userId: string) {
     const materials = await this.prisma.studyMaterial.findMany({
-      where: { userId },
+      where: { userId, classificationStatus: { not: 'DUPLICATE' } },
       orderBy: { createdAt: 'desc' },
       include: { user: { select: { displayName: true, photoURL: true } } },
     });
@@ -500,6 +500,7 @@ async update(id: string, userId: string, data: {
       include: { user: { select: { displayName: true, photoURL: true } } },
     });
     if (!material) throw new NotFoundException('Study material not found');
+    if (material.classificationStatus === 'DUPLICATE') throw new NotFoundException('Study material not found');
     if (!material.isPublic && material.userId !== userId) {
       throw new ForbiddenException('Not your material');
     }
@@ -512,6 +513,7 @@ async update(id: string, userId: string, data: {
   async incrementDownload(id: string, userId: string) {
     const material = await this.prisma.studyMaterial.findUnique({ where: { id } });
     if (!material) throw new NotFoundException('Study material not found');
+    if (material.classificationStatus === 'DUPLICATE') throw new NotFoundException('Study material not found');
     if (!material.isPublic && material.userId !== userId) {
       throw new ForbiddenException('Not your material');
     }
@@ -545,6 +547,7 @@ async findByUniversity(universityId: string, userId: string, filters?: {
   const materials = await this.prisma.studyMaterial.findMany({
     where: {
       universityId,
+      classificationStatus: { not: 'DUPLICATE' },
       ...(filters?.faculty && { faculty: filters.faculty }),
       ...(filters?.department && { department: filters.department }),
       ...(filters?.level && { level: filters.level }),
@@ -552,6 +555,7 @@ async findByUniversity(universityId: string, userId: string, filters?: {
       ...(filters?.course && { course: filters.course }),
       // Visibility check — always applies, its own AND-ed condition
       AND: [
+        { classificationStatus: { not: 'DUPLICATE' } },
         { OR: [{ isPublic: true }, { userId }] },
         ...(filters?.search
           ? [{

@@ -179,6 +179,7 @@ model StudyMaterial {
 
   @@index([fileHash])
   @@index([classificationStatus])
+  @@index([universityId, createdAt])
 }
 
 model School {
@@ -724,7 +725,42 @@ enum ClassificationMethod {
   RULE_COURSE_CODE  // deterministic filename/text regex + single DB match
   RULE_AMBIGUOUS    // regex matched a code, but DB returned 0 or 2+ Course rows
   AI                // reserved for the next slice
+  NEAR_DUPLICATE    // filename/content similarity flagged for human confirmation
   MANUAL            // admin-entered, bypassing the pipeline entirely
+}
+
+model ClassificationJob {
+  id             String   @id @default(uuid())
+  requestedById  String
+  status         String   @default("QUEUED")
+  totalItems     Int
+  createdAt      DateTime @default(now())
+  startedAt      DateTime?
+  completedAt    DateTime?
+  updatedAt      DateTime @updatedAt
+  items          ClassificationJobItem[]
+
+  @@index([status, createdAt])
+}
+
+model ClassificationJobItem {
+  id                    String   @id @default(uuid())
+  jobId                 String
+  materialId            String
+  status                String   @default("QUEUED")
+  attempts              Int      @default(0)
+  availableAt           DateTime @default(now())
+  lastError             String?  @db.Text
+  classificationOutcome String?
+  createdAt             DateTime @default(now())
+  startedAt             DateTime?
+  finishedAt            DateTime?
+  updatedAt             DateTime @updatedAt
+  job                   ClassificationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, materialId])
+  @@index([status, availableAt, createdAt])
+  @@index([jobId, status])
 }
 
 enum TextExtractionMethod {

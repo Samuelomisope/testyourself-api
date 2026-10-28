@@ -35,7 +35,10 @@ export class SearchController {
             { description: { contains: q, mode: 'insensitive' } },
             { faculty: { contains: q, mode: 'insensitive' } },
           ],
-          AND: [{ OR: [{ isPublic: true }, { userId: user?.id }] }],
+          AND: [
+            { classificationStatus: { not: 'DUPLICATE' } },
+            { OR: [{ isPublic: true }, { userId: user?.id }] },
+          ],
         },
          take,
         skip,

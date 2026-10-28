@@ -7,6 +7,7 @@ import { DuplicateDetectionService } from './services/duplicate-detection.servic
 import { TextExtractionService } from './services/text-extraction.service';
 import { UploadModule } from '../upload/upload.module';
 import { ProviderModule } from '../provider/provider.module';
+import { ClassificationJobsService } from './classification-jobs.service';
 
 @Module({
   imports: [PrismaModule, UploadModule, ProviderModule],
@@ -16,6 +17,7 @@ import { ProviderModule } from '../provider/provider.module';
     ClassificationRulesService,
     DuplicateDetectionService,
     TextExtractionService,
+    ClassificationJobsService,
   ],
   exports: [ClassificationService, ClassificationRulesService, DuplicateDetectionService, TextExtractionService],
 })

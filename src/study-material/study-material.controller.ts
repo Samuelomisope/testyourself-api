@@ -117,6 +117,7 @@ async upload(
 
     const materials = await this.prisma.studyMaterial.findMany({
       where: {
+        classificationStatus: { not: 'DUPLICATE' },
         ...(faculty && { faculty }),
         ...(department && { department }),
         ...(level && { level }),

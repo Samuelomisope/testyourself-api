@@ -32,9 +32,12 @@ async classify(input: ClassificationInput): Promise<ClassificationResult> {
       {
         role: 'system',
         content:
-          'Return ONLY valid JSON with fields university/school/department/programme/level/semester/course/materialType (each {value, confidence 0-100}), overallConfidence, reason. Use null value + 0 confidence when unsure, never guess.',
+          'Return ONLY valid JSON with fields university/school/department/programme/level/semester/course/materialType (each {value, confidence 0-100}), overallConfidence, reason. Use null value + 0 confidence when unsure, never guess. When candidate options are provided for a field, the value MUST exactly equal one provided option or be null. Never invent a value or identifier.',
       },
-      { role: 'user', content: `Text: ${input.extractedText.slice(0, 6000)}\nFile: ${input.fileName ?? ''}` },
+      {
+        role: 'user',
+        content: `Text: ${input.extractedText.slice(0, 6000)}\nFile: ${input.fileName ?? ''}\nCandidate options: ${JSON.stringify(input.candidateOptions ?? {})}`,
+      },
     ],
     response_format: { type: 'json_object' },
     max_completion_tokens: 300,
