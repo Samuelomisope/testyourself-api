@@ -74,6 +74,7 @@ model User {
   verificationStatus  VerificationStatus   @default(PENDING)
   role                Role                 @default(STUDENT)
   isPremium           Boolean              @default(false)
+  premiumUntil        DateTime?
   streakCount         Int                  @default(0)
   lastActiveAt        DateTime             @default(now())
   createdAt           DateTime             @default(now())
@@ -111,6 +112,21 @@ model User {
   novels         Novel[]
   askUniLibQueries AskUniLibQuery[]
   isOnline      Boolean   @default(false)
+  premiumPayments PremiumPayment[]
+}
+
+model PremiumPayment {
+  id          String   @id @default(uuid())
+  userId      String
+  reference   String   @unique
+  planCode    String
+  amount      Int
+  currency    String
+  paidAt      DateTime
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, paidAt])
 }
 
 model RefreshToken {

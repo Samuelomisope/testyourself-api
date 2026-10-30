@@ -38,10 +38,15 @@ async getRecentActivity(uid: string, type?: string, days = 7) {
   }
 
   async findById(id: string) {
-    return this.prisma.user.findUnique({
+    const user = await this.prisma.user.findUnique({
       where: { id },
       include: { university: true },
     });
+    if (!user) return null;
+    return {
+      ...user,
+      isPremium: user.isPremium && (!user.premiumUntil || user.premiumUntil > new Date()),
+    };
   }
 
   async updateProfile(uid: string, data: {

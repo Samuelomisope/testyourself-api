@@ -35,6 +35,7 @@ import { AIAssistantModule } from './ai-assistant/ai-assistant.module';
 import { ClassificationModule } from './classification/classification.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { NotificationsModule } from './notifications/notifications.module';
+import { BillingModule } from './billing/billing.module';
 
 @Module({
  imports: [
@@ -73,6 +74,7 @@ import { NotificationsModule } from './notifications/notifications.module';
     CoursesModule,
     ClassificationModule,
     NotificationsModule,
+    BillingModule,
   ],
   controllers: [SearchController, AppController],
 providers: [
