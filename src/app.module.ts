@@ -36,6 +36,7 @@ import { ClassificationModule } from './classification/classification.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { NotificationsModule } from './notifications/notifications.module';
 import { BillingModule } from './billing/billing.module';
+import { SearchModule } from './search/search.module';
 
 @Module({
  imports: [
@@ -75,6 +76,7 @@ import { BillingModule } from './billing/billing.module';
     ClassificationModule,
     NotificationsModule,
     BillingModule,
+    SearchModule,
   ],
   controllers: [SearchController, AppController],
 providers: [
