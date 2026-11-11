@@ -65,7 +65,10 @@ export class SignedUrlInterceptor implements NestInterceptor {
         Object.entries(value).map(async ([k, v]) => {
           if (SIGNABLE_STRING_FIELDS.includes(k) && this.looksLikeStorageUrl(v)) {
             const ownerId = typeof value.id === 'string' ? value.id : undefined;
-            if (ownerId && this.uploadService.isOwnedProfilePhoto(v as string, ownerId)) {
+            if (
+              (ownerId && this.uploadService.isOwnedProfilePhoto(v as string, ownerId)) ||
+              this.uploadService.isLegacyProfilePhoto(v as string)
+            ) {
               return [k, await this.signString(v as string)];
             }
             return [k, v];
