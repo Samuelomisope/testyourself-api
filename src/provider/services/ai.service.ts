@@ -44,7 +44,7 @@ export class AIService {
   ) {
     // Order = priority. Config-driven so this can change without a deploy
     // once an admin-configurable table exists (see spec Section 5).
-    this.classificationChain = this.resolveChain('AI_CLASSIFICATION_PROVIDER_CHAIN', ['claude', 'groq']);
+    this.classificationChain = this.resolveClassificationChain();
     this.generationChain = this.resolveChain('AI_GENERATION_PROVIDER_CHAIN', ['claude', 'groq']);
     this.visionChain = this.resolveChain('AI_VISION_PROVIDER_CHAIN', ['claude', 'groq']);
   }
@@ -118,6 +118,21 @@ async understandImage(image: Buffer, question?: string, mimeType?: string): Prom
     const order = configured ? configured.split(',').map((s) => s.trim()) : fallbackOrder;
     const byName: Record<string, AIProvider> = { claude: this.claude, groq: this.groq, gemini: this.gemini };
     return order.map((name) => byName[name]).filter(Boolean);
+  }
+
+  /** Gemini's classification method is still a stub; never route this task to it. */
+  private resolveClassificationChain(): AIProvider[] {
+    const configured = this.config.get<string>('AI_CLASSIFICATION_PROVIDER_CHAIN');
+    const requested = configured ? configured.split(',').map((name) => name.trim().toLowerCase()) : ['claude', 'groq'];
+    const supported: Record<string, AIProvider> = { claude: this.claude, groq: this.groq };
+    const selected = requested.map((name) => supported[name]).filter(Boolean);
+
+    if (requested.includes('gemini')) {
+      this.logger.warn('Ignoring Gemini in AI_CLASSIFICATION_PROVIDER_CHAIN because Gemini classification is not implemented');
+    }
+
+    // A stale or unsupported setting must not silently disable classification.
+    return selected.length ? selected : [this.claude, this.groq];
   }
 
   private uncertainResponse(reason: string): AIResponse {
