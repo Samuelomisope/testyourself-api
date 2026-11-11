@@ -4,6 +4,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AIService } from '../provider/services/ai.service';
 
 const MAX_CONTEXT_CHARS = 5_000;
+const STOP_WORDS = new Set([
+  'about', 'after', 'also', 'and', 'are', 'can', 'could', 'does', 'explain', 'find',
+  'from', 'give', 'help', 'into', 'make', 'more', 'please', 'show', 'some', 'that',
+  'the', 'their', 'them', 'then', 'this', 'what', 'when', 'where', 'which', 'with',
+  'would', 'your', 'you', 'concept', 'meaning', 'understand', 'tell', 'describe',
+]);
 
 type RetrievedMaterial = {
   id: string;
@@ -19,6 +25,19 @@ export class RagService {
   constructor(private readonly prisma: PrismaService, private readonly ai: AIService) {}
 
   async ask(userId: string, question: string, courseId?: string) {
+    const searchTokens = [...new Set(
+      (question.toLowerCase().normalize('NFKC').match(/[a-z0-9]{3,}/g) ?? [])
+        .filter((token) => !STOP_WORDS.has(token)),
+    )].slice(0, 8);
+    if (searchTokens.length === 0) {
+      return {
+        answer: 'Please include a course or topic name so I can look for relevant UniLib materials.',
+        isUncertain: true,
+        sources: [],
+        retrieval: 'postgres_full_text',
+      };
+    }
+    const ftsQuery = searchTokens.map((token) => `${token}:*`).join(' | ');
     const rows = await this.prisma.$queryRaw(Prisma.sql`
       WITH candidates AS (
         SELECT
@@ -30,7 +49,7 @@ export class RagService {
           m."description",
           ts_rank_cd(
             to_tsvector('simple', coalesce(m."title", '') || ' ' || coalesce(m."description", '') || ' ' || coalesce(m."extractedText", '')),
-            plainto_tsquery('simple', ${question})
+            to_tsquery('simple', ${ftsQuery})
           ) AS rank
         FROM "StudyMaterial" m
         LEFT JOIN "Course" c ON c."id" = m."courseId"
@@ -42,7 +61,7 @@ export class RagService {
           AND length(trim(m."extractedText")) > 0
           AND (${courseId ?? null}::text IS NULL OR m."courseId" = ${courseId ?? null})
           AND to_tsvector('simple', coalesce(m."title", '') || ' ' || coalesce(m."description", '') || ' ' || coalesce(m."extractedText", ''))
-              @@ plainto_tsquery('simple', ${question})
+              @@ to_tsquery('simple', ${ftsQuery})
       )
       SELECT "id", "title", "courseId", "courseCode", "extractedText", "description"
       FROM candidates
@@ -61,10 +80,9 @@ export class RagService {
 
     const chunks = rows.map((row, index) => {
       const text = (row.extractedText || row.description || '').trim();
-      const terms = question.toLowerCase().split(/\W+/).filter((term) => term.length > 2);
       let start = 0;
       const lower = text.toLowerCase();
-      for (const term of terms) {
+      for (const term of searchTokens) {
         const found = lower.indexOf(term);
         if (found >= 0) { start = Math.max(0, found - 350); break; }
       }
