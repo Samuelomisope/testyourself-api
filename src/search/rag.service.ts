@@ -91,13 +91,14 @@ export class RagService {
         materialId: row.id,
         materialTitle: row.title,
         courseId: row.courseId || '',
+        courseCode: row.courseCode || '',
         chunkText: `Course: ${row.courseCode || 'Unknown'}\nExcerpt: ${excerpt}`,
         chunkIndex: index,
       };
     });
 
     const response = await this.ai.generate(
-      `Answer the student's question using only the supplied UniLib excerpts. Cite relevant excerpts inline as [1], [2], etc. If the excerpts do not answer the question, say that the available materials do not provide enough information. Do not invent facts or citations.\n\nStudent question: ${question}`,
+      `You are UniLib's academic tutor. Give a clear, well-structured, detailed answer using only the supplied UniLib excerpts. Write in natural, polished Markdown that is easy to scan: start with a direct answer, then use short descriptive headings and bullets or numbered steps when they make the explanation clearer. Explain technical terms in plain language; define every symbol when using equations; include a small worked example only when the excerpts support it. Match the depth to the student's question without repeating yourself. Cite each factual point from the excerpts inline using only the supplied markers [1], [2], etc. Never invent facts, citations, page numbers, or source links. If the excerpts do not contain enough evidence, say exactly what is missing and distinguish that limitation from established facts.\n\nStudent question: ${question}`,
       { chunks },
     );
 
@@ -109,6 +110,7 @@ export class RagService {
         materialId: chunk.materialId,
         title: chunk.materialTitle,
         courseId: chunk.courseId,
+        courseCode: chunk.courseCode,
       })),
       retrieval: 'postgres_full_text',
       provider: response.providerUsed,
