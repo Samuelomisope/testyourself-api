@@ -14,6 +14,8 @@ import type { AuthUser } from '../common/decorators/current-user.decorator';
 import { AIAssistantService } from './ai-assistant.service';
 import { AskUniLibDto } from './dto/ask-unilib.dto';
 import { AskUniLibResponseDto } from './dto/ask-unilib-response.dto';
+import { validateUploadedFile } from '../common/file-signature';
+import { Throttle } from '@nestjs/throttler';
 
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
@@ -24,6 +26,7 @@ export class AIAssistantController {
   constructor(private readonly aiAssistantService: AIAssistantService) {}
 
 @Post('ask-image')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @UseInterceptors(FileInterceptor('image', { limits: { fileSize: MAX_IMAGE_SIZE_BYTES } }))
   async ask(
     @UploadedFile() file: Express.Multer.File,
@@ -33,9 +36,13 @@ export class AIAssistantController {
     if (!file) {
       throw new BadRequestException('An image file is required');
     }
+    if (dto.question !== undefined && (typeof dto.question !== 'string' || dto.question.length > 10_000)) {
+      throw new BadRequestException('Question must be at most 10,000 characters.');
+    }
     if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
       throw new BadRequestException(`Unsupported image type: ${file.mimetype}`);
     }
+    validateUploadedFile(file);
 
     return this.aiAssistantService.askUniLib(user.sub, file, dto.question);
   }

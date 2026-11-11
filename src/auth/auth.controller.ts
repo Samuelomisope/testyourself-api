@@ -33,13 +33,17 @@ export class AuthController {
 
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Post('refresh')
-  async refresh(@Req() req: Request) {
+  async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const refreshToken = req.cookies?.refreshToken;
     if (!refreshToken) {
       return { accessToken: null };
     }
-    const accessToken = await this.authService.refreshAccessToken(refreshToken);
-    return { accessToken };
+    const tokens = await this.authService.refreshAccessToken(refreshToken, req.headers['user-agent']);
+    res.cookie('refreshToken', tokens.refreshToken, {
+      httpOnly: true, secure: true, sameSite: 'none',
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+    });
+    return { accessToken: tokens.accessToken };
   }
 
   @Post('logout')

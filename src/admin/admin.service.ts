@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { StudyMaterialService } from '../study-material/study-material.service';
@@ -118,14 +118,23 @@ export class AdminService {
     });
   }
 async deleteMaterial(id: string) {
-    return this.prisma.studyMaterial.delete({ where: { id } });
+    const material = await this.prisma.studyMaterial.findUnique({ where: { id }, select: { fileUrl: true } });
+    if (!material) throw new NotFoundException('Study material not found');
+    const deleted = await this.prisma.studyMaterial.delete({ where: { id } });
+    try { await this.studyMaterialService.deleteFromR2(material.fileUrl); }
+    catch (error) { console.error(`Material ${id} deleted; storage cleanup failed:`, (error as Error).message); }
+    return deleted;
   }
 
   async bulkUpdateMaterials(ids: string[], data: Record<string, any>) {
     if (!ids?.length) throw new NotFoundException('No materials selected');
+    if (ids.length > 500) throw new NotFoundException('At most 500 materials can be updated at once');
+    const allowed = new Set(['title', 'description', 'faculty', 'department', 'level', 'semester', 'course', 'courseId', 'isPublic', 'needsReview', 'classificationStatus', 'classificationConfidence', 'classificationMethod', 'classificationReason']);
+    const safeData = Object.fromEntries(Object.entries(data ?? {}).filter(([key]) => allowed.has(key)));
+    if (!Object.keys(safeData).length) throw new NotFoundException('No supported fields to update');
     return this.prisma.studyMaterial.updateMany({
       where: { id: { in: ids } },
-      data,
+      data: safeData,
     });
   }
 
@@ -214,10 +223,17 @@ async deleteBuyer(id: string) {
   async toggleBanUser(id: string) {
     const user = await this.prisma.user.findUnique({ where: { id } });
     if (!user) throw new NotFoundException(`User ${id} not found`);
-    return this.prisma.user.update({
+    const updated = await this.prisma.user.update({
       where: { id },
       data: { isBanned: !user.isBanned },
     });
+    if (updated.isBanned) {
+      await this.prisma.refreshToken.updateMany({
+        where: { userId: id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+    }
+    return updated;
   }
 
   async notifyInactiveUsers() {
@@ -243,6 +259,7 @@ async deleteBuyer(id: string) {
       include: {
         user: { select: { displayName: true, photoURL: true } },
         university: { select: { id: true, name: true, shortName: true } },
+        duplicateOf: { select: { id: true, title: true } },
       },
     });
     return Promise.all(materials.map(m => this.studyMaterialService.withSignedUrl(m)));
@@ -250,18 +267,97 @@ async deleteBuyer(id: string) {
 
   // Resolve: assign a courseId and clear the flag
   async resolveMaterialReview(id: string, courseId: string) {
+    const material = await this.prisma.studyMaterial.findUnique({ where: { id }, select: { id: true, universityId: true } });
+    if (!material) throw new NotFoundException('Study material not found');
+    const course = await this.prisma.course.findUnique({
+      where: { id: courseId },
+      select: { program: { select: { department: { select: { school: { select: { universityId: true } } } } } } },
+    });
+    if (!course || course.program.department.school.universityId !== material.universityId) {
+      throw new NotFoundException('Course not found for this university');
+    }
     return this.prisma.studyMaterial.update({
       where: { id },
-      data: { courseId, needsReview: false },
+      data: {
+        courseId,
+        needsReview: false,
+        classificationStatus: 'AUTO_ORGANIZED',
+        classificationMethod: 'MANUAL',
+        classificationConfidence: 100,
+        classificationReason: 'Course assignment confirmed by an administrator.',
+      },
     });
   }
 
   // Dismiss: clear the flag without assigning a course
   // (e.g. the title genuinely has no matchable course — reviewed and left as-is)
   async dismissMaterialReview(id: string) {
+    const material = await this.prisma.studyMaterial.findUnique({
+      where: { id },
+      select: { id: true, courseId: true, duplicateOfId: true },
+    });
+    if (!material) throw new NotFoundException('Study material not found');
     return this.prisma.studyMaterial.update({
       where: { id },
-      data: { needsReview: false },
+      data: material.duplicateOfId
+        ? {
+            needsReview: false,
+            duplicateOfId: null,
+            classificationStatus: material.courseId ? 'AUTO_ORGANIZED' : 'UNABLE_TO_CLASSIFY',
+            classificationMethod: material.courseId ? 'MANUAL' : null,
+            classificationConfidence: material.courseId ? 100 : null,
+            classificationReason: 'Possible duplicate was reviewed and not confirmed.',
+          }
+        : { needsReview: false },
+    });
+  }
+
+  async confirmMaterialDuplicate(id: string) {
+    const material = await this.prisma.studyMaterial.findUnique({
+      where: { id },
+      select: { id: true, universityId: true, duplicateOfId: true },
+    });
+    if (!material) throw new NotFoundException('Study material not found');
+    if (!material.duplicateOfId || material.duplicateOfId === material.id) {
+      throw new BadRequestException('This material has no valid duplicate candidate.');
+    }
+    const canonical = await this.prisma.studyMaterial.findUnique({
+      where: { id: material.duplicateOfId },
+      select: { id: true, title: true, universityId: true, isDeleted: true },
+    });
+    if (!canonical || canonical.isDeleted || canonical.universityId !== material.universityId) {
+      throw new BadRequestException('The suggested duplicate is no longer available.');
+    }
+    return this.prisma.studyMaterial.update({
+      where: { id },
+      data: {
+        classificationStatus: 'DUPLICATE',
+        classificationMethod: 'NEAR_DUPLICATE',
+        classificationReason: `Duplicate confirmed by an administrator against "${canonical.title}" (${canonical.id}).`,
+        needsReview: false,
+      },
+    });
+  }
+
+  async restoreMaterialDuplicate(id: string) {
+    const material = await this.prisma.studyMaterial.findUnique({
+      where: { id },
+      select: { id: true, courseId: true, classificationStatus: true },
+    });
+    if (!material) throw new NotFoundException('Study material not found');
+    if (material.classificationStatus !== 'DUPLICATE') {
+      throw new BadRequestException('This material is not marked as a duplicate.');
+    }
+    return this.prisma.studyMaterial.update({
+      where: { id },
+      data: {
+        classificationStatus: material.courseId ? 'AUTO_ORGANIZED' : 'NEEDS_REVIEW',
+        classificationMethod: material.courseId ? 'MANUAL' : null,
+        classificationConfidence: material.courseId ? 100 : null,
+        classificationReason: 'Restored to the library by an administrator.',
+        duplicateOfId: null,
+        needsReview: !material.courseId,
+      },
     });
   }
 
@@ -273,13 +369,15 @@ async sendMessageToUser(userId: string, subject: string, message: string) {
 
   if (!user) throw new NotFoundException(`User not found`);
 
+  const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!);
+
   await this.email.sendEmail(
     user.email,
     subject,
     `
     <div style="font-family: sans-serif; max-width: 500px; margin: auto;">
-      <h2 style="color: #7c3aed;">Hey ${user.displayName}! 👋</h2>
-      <p>${message}</p>
+      <h2 style="color: #7c3aed;">Hey ${escapeHtml(user.displayName || 'there')}! 👋</h2>
+      <p>${escapeHtml(message)}</p>
       <p style="margin-top:24px; color:#999; font-size:12px;">If this email landed in spam, please mark it as "Not Spam" to keep receiving updates from TestYourself.</p>
     </div>
     `
@@ -316,10 +414,11 @@ async getAllNovels() {
   }
 
   private buildAnnouncementHtml(displayName: string, description: string) {
+  const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!);
   return `
     <div style="font-family: sans-serif; max-width: 500px; margin: auto;">
-      <h2 style="color: #7c3aed;">Hey ${displayName || 'there'}! 👋</h2>
-      <p>${description}</p>
+      <h2 style="color: #7c3aed;">Hey ${escapeHtml(displayName || 'there')}! 👋</h2>
+      <p>${escapeHtml(description)}</p>
       <p style="margin-top:24px; color:#999; font-size:12px;">If this email landed in spam, please mark it as "Not Spam" to keep receiving updates from TestYourself.</p>
     </div>
   `;
@@ -338,7 +437,7 @@ async broadcastToAll(title: string, description: string) {
       sent++;
     } catch (err) {
       // one bad address shouldn't kill the whole broadcast — log and keep going
-      console.error(`Broadcast failed for ${user.email}:`, err);
+      console.error('Broadcast delivery failed:', err instanceof Error ? err.name : 'unknown error');
     }
   }
 

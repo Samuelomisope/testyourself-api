@@ -35,7 +35,7 @@ export class ChatController {
     @CurrentUser() user: AuthUser,
     @Body('universityId') universityId: string,
   ) {
-    return this.chatService.getOrCreateGroupRoom(universityId);
+    return this.chatService.getOrCreateGroupRoom(user.sub, universityId);
   }
 
   // NEW: Create a custom named group with selected members
@@ -56,8 +56,8 @@ export class ChatController {
   }
 
   @Get('rooms/:roomId')
-  getRoomById(@Param('roomId') roomId: string) {
-    return this.chatService.getRoomById(roomId);
+  getRoomById(@Param('roomId') roomId: string, @CurrentUser() user: AuthUser) {
+    return this.chatService.getRoomById(roomId, user.sub);
   }
 
   @Get('rooms/:roomId/messages')

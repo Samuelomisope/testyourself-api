@@ -6,6 +6,8 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthUser } from '../common/decorators/current-user.decorator';
 import { Throttle } from '@nestjs/throttler';
 import { StudyPlanCoachService } from './study-plan-coach.service';
+import { ActivityTrackingService } from '../activity/activity-tracking.service';
+import { validateUploadedFile } from '../common/file-signature';
 
 
 const MAX_AI_FILE_SIZE = 15 * 1024 * 1024;
@@ -69,6 +71,7 @@ export class AiController {
  constructor(
      private readonly aiService: AiService,
      private readonly coachService: StudyPlanCoachService,
+     private readonly activity: ActivityTrackingService,
    ) {}
 
 
@@ -81,10 +84,18 @@ async generateQuiz(
 ) {
   const text = validateText(body.text, 'Text');
   if (!text && !file) throw new BadRequestException('Provide text or a supported file.');
+  if (file) validateUploadedFile(file);
   const fileData = file ? file.buffer.toString('base64') : undefined;
   const fileMimeType = file ? file.mimetype : undefined;
-  return this.aiService.generateQuiz(user.sub, text, validateCount(body.count, 5, 20), validateDifficulty(body.difficulty), fileData, fileMimeType);
-}
+ const count = validateCount(body.count, 5, 20);
+const difficulty = validateDifficulty(body.difficulty);
+const result = await this.aiService.generateQuiz(user.sub, text, count, difficulty, fileData, fileMimeType);
+void this.activity.record(user.sub, {
+  eventType: 'student_generated_questions',
+  payload: { count, difficulty },
+ });
+return result;
+ }
 
   // Generate quiz from an existing library material
  @Post('quiz/from-material')
@@ -95,13 +106,16 @@ async generateQuizFromMaterial(
   if (typeof body.materialId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.materialId)) {
     throw new BadRequestException('A valid material ID is required.');
   }
-  return this.aiService.generateQuizFromMaterial(
-    user.sub,
-    body.materialId,
-    validateCount(body.count, 5, 20),
-    validateDifficulty(body.difficulty),
-  );
-}
+  const count = validateCount(body.count, 5, 20);
+  const difficulty = validateDifficulty(body.difficulty);
+ const result = await this.aiService.generateQuizFromMaterial(user.sub, body.materialId, count, difficulty);
+  void this.activity.record(user.sub, {
+    eventType: 'student_generated_questions',
+    materialId: body.materialId,
+    payload: { count, difficulty },
+  });
+  return result;
+ }
 
  @Post('ask')
 @UseInterceptors(FileInterceptor('file', aiFileInterceptorOptions))
@@ -113,6 +127,7 @@ async askQuestion(
   const question = validateText(body.question, 'Question');
   const history = validateText(body.history, 'History');
   if (!question && !file) throw new BadRequestException('Provide a question or a supported file.');
+  if (file) validateUploadedFile(file);
   const fileData = file ? file.buffer.toString('base64') : undefined;
   const fileMimeType = file ? file.mimetype : undefined;
   return this.aiService.askQuestion(question, fileData, fileMimeType, history);
@@ -127,6 +142,7 @@ async summarize(
 ) {
   const text = validateText(body.text, 'Text');
   if (!text && !file) throw new BadRequestException('Provide text or a supported file.');
+  if (file) validateUploadedFile(file);
   const fileData = file ? file.buffer.toString('base64') : undefined;
   const fileMimeType = file ? file.mimetype : undefined;
   const style = ['Bullet points', 'Short paragraph', 'Key terms only'].includes(body.style ?? '') ? body.style : 'Bullet points';
@@ -151,6 +167,7 @@ async generateRevisionMaterial(
   const text = validateText(body.text, 'Text');
   const materialId = validateMaterialId(body.materialId);
   if (!text && !file && !materialId) throw new BadRequestException('Provide text, a file, or a material ID.');
+  if (file) validateUploadedFile(file);
   const fileData = file ? file.buffer.toString('base64') : undefined;
   const fileMimeType = file ? file.mimetype : undefined;
   return this.aiService.generateRevisionMaterial(user.sub, text, fileData, fileMimeType, materialId);
@@ -166,18 +183,21 @@ async generatePracticeProblems(
   const text = validateText(body.text, 'Text');
   const materialId = validateMaterialId(body.materialId);
   if (!text && !file && !materialId) throw new BadRequestException('Provide text, a file, or a material ID.');
+  if (file) validateUploadedFile(file);
   const fileData = file ? file.buffer.toString('base64') : undefined;
   const fileMimeType = file ? file.mimetype : undefined;
-  return this.aiService.generatePracticeProblems(
-    user.sub,
-    text,
-    validateCount(body.count, 5, 20),
-    validateDifficulty(body.difficulty),
-    fileData,
-    fileMimeType,
-    materialId,
+  const count = validateCount(body.count, 5, 20);
+  const difficulty = validateDifficulty(body.difficulty);
+  const result = await this.aiService.generatePracticeProblems(
+    user.sub, text, count, difficulty, fileData, fileMimeType, materialId,
   );
-}
+  void this.activity.record(user.sub, {
+    eventType: 'student_generated_questions',
+    materialId,
+    payload: { count, difficulty },
+  });
+  return result;
+ }
   @Post('chat')
 @UseInterceptors(FileInterceptor('file', aiFileInterceptorOptions))
 async chat(
@@ -188,6 +208,7 @@ async chat(
   const question = validateText(body.question, 'Question');
   const sessionId = validateSessionId(body.sessionId);
   if (!question && !file) throw new BadRequestException('Provide a question or a supported file.');
+  if (file) validateUploadedFile(file);
   const fileData = file ? file.buffer.toString('base64') : undefined;
   const fileMimeType = file ? file.mimetype : undefined;
   return this.aiService.chat(user.sub, sessionId, question, fileData, fileMimeType);
@@ -213,11 +234,19 @@ async explain(
   const text = validateText(body.text, 'Text');
   const continueFrom = validateText(body.continueFrom, 'Continuation');
   if (!text && !file && !continueFrom) throw new BadRequestException('Provide text or a supported file.');
+  if (file) validateUploadedFile(file);
   const fileData = file ? file.buffer.toString('base64') : undefined;
   const fileMimeType = file ? file.mimetype : undefined;
   const level = ['Simple', 'Detailed', "Like I'm 5"].includes(body.level ?? '') ? body.level : 'Detailed';
-  return this.aiService.explain(user.sub, text, level, fileData, fileMimeType, continueFrom || undefined);
-}
+const result = await this.aiService.explain(user.sub, text, level, fileData, fileMimeType, continueFrom || undefined);
+  if (!continueFrom) {
+    void this.activity.record(user.sub, {
+      eventType: 'student_requested_explanation',
+      payload: { level: level as string },
+    });
+  }
+  return result;
+ }
 @Post('study-plan')
 @UseInterceptors(FileInterceptor('file', aiFileInterceptorOptions))
 async generateStudyPlan(
@@ -228,6 +257,7 @@ async generateStudyPlan(
   const subject = validateText(body.subject, 'Subject');
   if (!subject) throw new BadRequestException('Provide a subject or course to study.');
   const text = validateText(body.text, 'Text');
+  if (file) validateUploadedFile(file);
   const fileData = file ? file.buffer.toString('base64') : undefined;
   const fileMimeType = file ? file.mimetype : undefined;
 
@@ -277,18 +307,21 @@ async toggleTask(
   async generateFlashcards(
     @UploadedFile() file: Express.Multer.File,
     @Body() body: { text?: string; count?: string },
+    @CurrentUser() user: AuthUser,
   ) {
     const text = validateText(body.text, 'Text');
     if (!text && !file) throw new BadRequestException('Provide text or a supported file.');
+    if (file) validateUploadedFile(file);
     const fileData = file ? file.buffer.toString('base64') : undefined;
     const fileMimeType = file ? file.mimetype : undefined;
-    return this.aiService.generateFlashcards(
-      text,
-      validateCount(body.count, 10, 30),
-      fileData,
-      fileMimeType,
-    );
-  }
+    const count = validateCount(body.count, 10, 30);
+    const result = await this.aiService.generateFlashcards(text, count, fileData, fileMimeType);
+    void this.activity.record(user.sub, {
+   eventType: 'student_generated_flashcards',
+      payload: { count },
+    });
+    return result;
+   }
 
   @Get('generations')
 async listGenerations(@Query('tool') tool: string, @CurrentUser() user: AuthUser) {

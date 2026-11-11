@@ -2,6 +2,7 @@
 import { Controller, Get, Post, Body, Query, Param, UseGuards, Req, BadRequestException } from '@nestjs/common';
 import { CoursesService } from './courses.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AdminGuard } from '../auth/admin.guard';
 
 @Controller()
 @UseGuards(JwtAuthGuard)
@@ -30,6 +31,7 @@ export class CoursesController {
   }
 
   @Post('courses')
+  @UseGuards(AdminGuard)
   createCourse(
     @Req() req: any,
     @Body() body: { programId: string; code: string; title: string; level?: string; semester?: string },

@@ -3,6 +3,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { DuplicateDetectionService } from './duplicate-detection.service';
 import { ClassificationRulesService } from './classification-rules.service';
 import { TextExtractionService } from './text-extraction.service';
+import type { TextExtractionMethod } from './text-extraction.service';
+import { AIService } from '../../provider/services/ai.service';
 
 // Reconcile this with whatever UploadService already validates on the way into R2 —
 // duplicated here only so ClassificationService can run standalone in bulk-reprocess jobs
@@ -52,6 +54,7 @@ export class ClassificationService {
     private readonly duplicateDetection: DuplicateDetectionService,
     private readonly rules: ClassificationRulesService,
     private readonly textExtraction: TextExtractionService,
+    private readonly ai: AIService,
   ) {}
 validateFile(mimeType: string): { valid: boolean; reason?: string; normalizedMimeType?: string } {
   const normalized = SUPPORTED_MIME_TYPES.has(mimeType)
@@ -108,7 +111,12 @@ validateFile(mimeType: string): { valid: boolean; reason?: string; normalizedMim
     }
 
     const extraction = await this.textExtraction.extractText(fileBuffer, validation.normalizedMimeType!);
-    const sourceText = [material.title, extraction.text].filter(Boolean).join(' ');
+    const r2CourseFolder = this.getCourseFolderHint(material.fileUrl);
+    // Existing R2 objects may live under paths such as
+    // `1st Semester/EEE 203/EEE 203 - NOTE.pdf`. Use the course folder first so
+    // the deterministic code matcher sees that curated folder label before any
+    // incidental course codes in the document body.
+    const sourceText = [r2CourseFolder, material.title, extraction.text].filter(Boolean).join(' ');
 
     // Extraction metadata is worth persisting even on NEEDS_REVIEW / UNABLE_TO_CLASSIFY
     // outcomes below — it's reused later for OCR routing and RAG chunking, so every
@@ -119,11 +127,39 @@ validateFile(mimeType: string): { valid: boolean; reason?: string; normalizedMim
       needsOcr: extraction.likelyScanned,
     };
 
+    const nearDuplicate = await this.duplicateDetection.findNearDuplicate({
+      materialId,
+      universityId: material.universityId,
+      title: material.title,
+      extractedText: extraction.text,
+    });
+    if (nearDuplicate) {
+      const percent = Math.round(nearDuplicate.similarity * 100);
+      const reason = `Possible ${nearDuplicate.matchType === 'CONTENT_SIMILARITY' ? 'content' : 'title'} duplicate of "${nearDuplicate.material.title}" (${nearDuplicate.material.id}); similarity ${percent}%. Administrator confirmation is required.`;
+      await this.prisma.studyMaterial.update({
+        where: { id: materialId },
+        data: {
+          fileHash,
+          ...extractionFields,
+          duplicateOfId: nearDuplicate.material.id,
+          classificationStatus: 'NEEDS_REVIEW',
+          classificationConfidence: percent,
+          classificationMethod: 'NEAR_DUPLICATE',
+          classificationReason: reason,
+          needsReview: true,
+        },
+      });
+      return { materialId, status: 'NEEDS_REVIEW', reason };
+    }
+
     const ruleResult = await this.rules.classifyByCourseCode(sourceText, material.universityId);
 
     if (ruleResult.outcome === 'RESOLVED') {
       const { course, matchedCode } = ruleResult;
-      const reason = `Course code "${matchedCode.normalized}" matched exactly one course: ${course.title} (${course.program.department.school.name} > ${course.program.department.name} > ${course.program.name})`;
+      const folderContext = r2CourseFolder
+        ? ` R2 course folder "${r2CourseFolder}" was used as the primary course hint.`
+        : '';
+      const reason = `Course code "${matchedCode.normalized}" matched exactly one course: ${course.title} (${course.program.department.school.name} > ${course.program.department.name} > ${course.program.name}).${folderContext}`;
 
       await this.prisma.studyMaterial.update({
         where: { id: materialId },
@@ -137,6 +173,7 @@ validateFile(mimeType: string): { valid: boolean; reason?: string; normalizedMim
           classificationMethod: 'RULE_COURSE_CODE',
           classificationReason: reason,
           needsReview: false,
+          duplicateOfId: null,
         },
       });
       this.logger.log(`Auto-organized ${materialId} via course-code rule (${matchedCode.normalized})`);
@@ -145,6 +182,11 @@ validateFile(mimeType: string): { valid: boolean; reason?: string; normalizedMim
 
     if (ruleResult.outcome === 'AMBIGUOUS') {
       const { candidates, matchedCode } = ruleResult;
+      const aiOutcome = await this.tryAiClassification(
+        materialId, material.title, sourceText, fileHash, extractionFields, candidates,
+        `Course code "${matchedCode.normalized}" matched multiple courses.`,
+      );
+      if (aiOutcome) return aiOutcome;
       const optionsList = candidates
         .map((c) => `${c.title} [${c.program.department.school.name} > ${c.program.department.name} > ${c.program.name}]`)
         .join('; ');
@@ -160,15 +202,26 @@ validateFile(mimeType: string): { valid: boolean; reason?: string; normalizedMim
           classificationMethod: 'RULE_AMBIGUOUS',
           classificationReason: reason,
           needsReview: true,
+          duplicateOfId: null,
         },
       });
       return { materialId, status: 'NEEDS_REVIEW', reason };
     }
 
-    // NO_MATCH — no course code found even after including extracted text.
+    // NO_MATCH — use the AI only to suggest a row from a tightly scoped part
+    // of this university's real course catalog. AI suggestions always remain
+    // in Needs Review; only the deterministic unique-code rule auto-organizes.
+    const aiCandidates = await this.rules.findAICandidates(sourceText, material.universityId);
+    const aiOutcome = await this.tryAiClassification(
+      materialId, material.title, sourceText, fileHash, extractionFields, aiCandidates,
+      'No exact course-code match was found.',
+    );
+    if (aiOutcome) return aiOutcome;
+
+    // No safe database-backed suggestion was available.
     const reason = extraction.likelyScanned
-      ? 'No course code found; this looks like a scanned document with no extractable text layer — needs OCR (not yet implemented).'
-      : 'No course code found in title or extracted text; AI classification is not yet implemented.';
+      ? 'No exact course-code match or usable AI suggestion was available; this scanned document needs manual review.'
+      : 'No exact course-code match or usable AI suggestion was available; needs manual review.';
 
     await this.prisma.studyMaterial.update({
       where: { id: materialId },
@@ -178,8 +231,133 @@ validateFile(mimeType: string): { valid: boolean; reason?: string; normalizedMim
         classificationStatus: 'UNABLE_TO_CLASSIFY',
         classificationReason: reason,
         needsReview: true,
+        duplicateOfId: null,
       },
     });
     return { materialId, status: 'UNABLE_TO_CLASSIFY', reason };
+  }
+
+  /**
+   * Read a course-code directory from a stored object path without relying on
+   * the signed URL query string. Only an entire directory segment matching a
+   * course code is accepted; generic folders such as `CSC` or `1st Semester`
+   * are deliberately ignored.
+   */
+  private getCourseFolderHint(fileUrl: string): string | null {
+    try {
+      const url = new URL(fileUrl);
+      const segments = url.pathname.split('/').filter(Boolean).map((segment) => decodeURIComponent(segment));
+      const bucketName = process.env.R2_BUCKET_NAME;
+      let keySegments = segments;
+
+      if (bucketName) {
+        const bucketIndex = segments.indexOf(bucketName);
+        if (bucketIndex >= 0) keySegments = segments.slice(bucketIndex + 1);
+      } else if (url.hostname.endsWith('.r2.cloudflarestorage.com') || url.hostname.includes('.wasabisys.com')) {
+        // S3 path-style URLs put the bucket before the object key.
+        keySegments = segments.slice(1);
+      }
+
+      const directorySegments = keySegments.slice(0, -1);
+      const completeCourseFolder = directorySegments.find((segment) =>
+        /^[A-Z]{2,5}[\s_-]?\d{3}[A-Z]?$/i.test(segment),
+      );
+      if (completeCourseFolder) return completeCourseFolder;
+
+      // Some legacy folders split the course code across two levels, e.g.
+      // `CHE/101/` or `PHY/107/`. Rejoin only adjacent segments that together
+      // form a full course code; broad folders such as `CHE/` remain ignored.
+      for (let index = 0; index < directorySegments.length - 1; index++) {
+        const prefix = directorySegments[index].match(/^([A-Z]{2,5})$/i);
+        const number = directorySegments[index + 1].match(/^(\d{3}[A-Z]?)$/i);
+        if (prefix && number) return `${prefix[1]} ${number[1]}`;
+      }
+
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async tryAiClassification(
+    materialId: string,
+    fileName: string,
+    extractedText: string,
+    fileHash: string,
+    extractionFields: { extractedText: string | null; textExtractionMethod: TextExtractionMethod; needsOcr: boolean },
+    candidates: Array<{
+      id: string;
+      code: string;
+      title: string;
+      level: string | null;
+      semester: string | null;
+      program: { name: string; department: { name: string; school: { name: string; code: string } } };
+    }>,
+    deterministicReason: string,
+  ): Promise<ClassificationOutcome | null> {
+    if (!candidates.length) return null;
+
+    const labels = candidates.map((course) => ({
+      id: course.id,
+      label: `${course.id} | ${course.code} — ${course.title} | ${course.program.department.name} | ${course.program.name}`,
+    }));
+    try {
+      const result = await this.ai.classify({
+        extractedText,
+        fileName,
+        candidateOptions: { course: labels.map((item) => item.label) },
+      });
+      if (!result || !result.course) return null;
+
+      const proposedValue = typeof result.course.value === 'string' ? result.course.value.trim() : '';
+      const exact = labels.filter(({ id, label }) => proposedValue === id || proposedValue === label || proposedValue.startsWith(`${id} |`));
+      // Some providers return the exact course code/title instead of the option
+      // string. Accept those only when they identify one catalog row uniquely.
+      const byCode = labels.filter(({ id }) =>
+        proposedValue.toLowerCase() === candidates.find((course) => course.id === id)?.code.toLowerCase(),
+      );
+      const byTitle = labels.filter(({ id }) =>
+        proposedValue.toLowerCase() === candidates.find((course) => course.id === id)?.title.toLowerCase(),
+      );
+      const match = exact.length === 1 ? exact[0]
+        : byCode.length === 1 ? byCode[0]
+          : byTitle.length === 1 ? byTitle[0] : null;
+      const course = match && candidates.find((item) => item.id === match.id);
+      const fieldConfidence = result.course.confidence;
+      const overallConfidence = result.overallConfidence;
+      if (
+        !course ||
+        typeof fieldConfidence !== 'number' || !Number.isFinite(fieldConfidence) || fieldConfidence < 0 || fieldConfidence > 100 ||
+        typeof overallConfidence !== 'number' || !Number.isFinite(overallConfidence) || overallConfidence < 0 || overallConfidence > 100
+      ) return null;
+      const confidence = Math.min(fieldConfidence, overallConfidence);
+
+      const providerReason = typeof result.reason === 'string' ? result.reason.trim().slice(0, 1200) : '';
+      const reason = [
+        `AI suggested ${course.code} — ${course.title} (${course.program.department.name} > ${course.program.name}).`,
+        `${deterministicReason} This is a suggestion and requires administrator confirmation.`,
+        providerReason,
+      ].filter(Boolean).join(' ');
+
+      await this.prisma.studyMaterial.update({
+        where: { id: materialId },
+        data: {
+          fileHash,
+          ...extractionFields,
+          extractedCourseCode: course.code,
+          classificationStatus: 'NEEDS_REVIEW',
+          classificationConfidence: confidence,
+          classificationMethod: 'AI',
+          classificationReason: reason,
+          needsReview: true,
+          duplicateOfId: null,
+          // Deliberately do not assign courseId until an admin confirms it.
+        },
+      });
+      return { materialId, status: 'NEEDS_REVIEW', reason };
+    } catch (error) {
+      this.logger.warn(`AI classification unavailable for ${materialId}: ${(error as Error).message}`);
+      return null;
+    }
   }
 }

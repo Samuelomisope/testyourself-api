@@ -6,9 +6,12 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { ProviderModule } from '../provider/provider.module';
 import { UploadModule } from '../upload/upload.module';
 import { StudyPlanCoachService } from './study-plan-coach.service';
+import { ActivityTrackingModule } from '../activity/activity-tracking.module';
+import { NotificationsModule } from '../notifications/notifications.module';
+
 
 @Module({
-  imports: [AuthModule, PrismaModule, ProviderModule, UploadModule],
+  imports: [AuthModule, PrismaModule, ProviderModule, UploadModule, ActivityTrackingModule, NotificationsModule],
   controllers: [AiController],
   providers: [AiService, StudyPlanCoachService],
 })

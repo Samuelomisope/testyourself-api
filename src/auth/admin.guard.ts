@@ -1,14 +1,15 @@
 import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
 
-const ADMIN_EMAILS = ['omisope34@gmail.com'];
-
 @Injectable()
 export class AdminGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest();
     const user = request.user; // set by JwtAuthGuard, which must run before this guard
 
-    if (!user || !ADMIN_EMAILS.includes(user.email)) {
+    const role = user?.role;
+    const email = typeof user?.email === 'string' ? user.email.toLowerCase() : '';
+    const allowedEmails = new Set((process.env.ADMIN_EMAILS ?? '').split(',').map((value) => value.trim().toLowerCase()).filter(Boolean));
+    if (!user || (!['ADMIN', 'SUPER_ADMIN'].includes(role) && !allowedEmails.has(email))) {
       throw new ForbiddenException('Admin access only');
     }
     return true;

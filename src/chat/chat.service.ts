@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -21,6 +21,11 @@ async setUserOnline(userId: string, isOnline: boolean) {
   // ── Direct Message Room ───────────────────────────────────────────
   async getOrCreateDM(firebaseUid: string, targetUserId: string) {
     const currentUser = await this.getDbUser(firebaseUid);
+    if (!targetUserId || targetUserId === currentUser.id) {
+      throw new ForbiddenException('Choose another user to start a direct message.');
+    }
+    const targetUser = await this.prisma.user.findUnique({ where: { id: targetUserId }, select: { id: true, isBanned: true } });
+    if (!targetUser || targetUser.isBanned) throw new NotFoundException('User not found');
 
     const existing = await this.prisma.chatRoom.findFirst({
       where: {
@@ -68,14 +73,21 @@ async setUserOnline(userId: string, isOnline: boolean) {
   }
 
   // ── University Group Room ─────────────────────────────────────────
-  async getOrCreateGroupRoom(universityId: string) {
+  async getOrCreateGroupRoom(firebaseUid: string, universityId: string) {
+    const user = await this.getDbUser(firebaseUid);
+    if (!user.universityId || user.universityId !== universityId) {
+      throw new ForbiddenException('You can only join your university group.');
+    }
     const existing = await this.prisma.chatRoom.findFirst({
       where: { isGroup: true, universityId },
     });
-    if (existing) return existing;
-    return this.prisma.chatRoom.create({
-      data: { isGroup: true, universityId },
+    const room = existing ?? await this.prisma.chatRoom.create({ data: { isGroup: true, universityId } });
+    await this.prisma.chatRoomMember.upsert({
+      where: { userId_roomId: { userId: user.id, roomId: room.id } },
+      create: { userId: user.id, roomId: room.id },
+      update: {},
     });
+    return room;
   }
 
   // ── Create Custom Group ───────────────────────────────────────────
@@ -86,14 +98,22 @@ async setUserOnline(userId: string, isOnline: boolean) {
     memberIds: string[],
   ) {
     const creator = await this.getDbUser(firebaseUid);
+    if (!name?.trim() || name.length > 100 || !Array.isArray(memberIds) || memberIds.length > 99) {
+      throw new ForbiddenException('Invalid group details.');
+    }
 
     // Always include the creator
     const allMemberIds = Array.from(new Set([creator.id, ...memberIds]));
+    const members = await this.prisma.user.findMany({
+      where: { id: { in: allMemberIds }, isBanned: false },
+      select: { id: true },
+    });
+    if (members.length !== allMemberIds.length) throw new NotFoundException('One or more group members were not found.');
 
     return this.prisma.chatRoom.create({
       data: {
         isGroup: true,
-        name,
+        name: name.trim(),
         members: {
           create: allMemberIds.map((userId) => ({ userId })),
         },
@@ -112,6 +132,11 @@ async setUserOnline(userId: string, isOnline: boolean) {
   // ── Join Group Room ───────────────────────────────────────────────
   async joinGroupRoom(firebaseUid: string, roomId: string) {
     const user = await this.getDbUser(firebaseUid);
+    const room = await this.prisma.chatRoom.findUnique({ where: { id: roomId } });
+    if (!room) throw new NotFoundException('Room not found');
+    if (!room.isGroup || !room.universityId || room.universityId !== user.universityId) {
+      throw new ForbiddenException('You cannot join this room.');
+    }
     const existing = await this.prisma.chatRoomMember.findUnique({
       where: { userId_roomId: { userId: user.id, roomId } },
     });
@@ -184,6 +209,19 @@ async setUserOnline(userId: string, isOnline: boolean) {
     });
   }
 
+  async assertRoomMember(roomId: string, userId: string): Promise<void> {
+    const member = await this.prisma.chatRoomMember.findUnique({
+      where: { userId_roomId: { userId, roomId } }, select: { id: true },
+    });
+    if (!member) throw new ForbiddenException('Not a member of this room');
+  }
+
+  async getMessageRoomId(messageId: string): Promise<string> {
+    const message = await this.prisma.message.findUnique({ where: { id: messageId }, select: { roomId: true } });
+    if (!message) throw new NotFoundException('Message not found');
+    return message.roomId;
+  }
+
   // ── Search Messages ───────────────────────────────────────────────
   // NEW: full-text search within a room
   async searchMessages(roomId: string, firebaseUid: string, query: string) {
@@ -248,6 +286,24 @@ async setUserOnline(userId: string, isOnline: boolean) {
       replyToId?: string;
     },
   ) {
+    const sender = await this.getDbUser(senderId);
+    const messageType = options?.type ?? 'text';
+    if (typeof text !== 'string' || text.length > 10_000 || (options?.mediaUrl !== undefined && (typeof options.mediaUrl !== 'string' || options.mediaUrl.length > 2_000)) ||
+        (options?.mediaType !== undefined && (typeof options.mediaType !== 'string' || options.mediaType.length > 100)) ||
+        !['text', 'image', 'video', 'audio', 'file'].includes(messageType)) {
+      throw new BadRequestException('Invalid message content.');
+    }
+    if (!text.trim() && !options?.mediaUrl) throw new BadRequestException('Message content is required.');
+    const membership = await this.prisma.chatRoomMember.findUnique({
+      where: { userId_roomId: { userId: sender.id, roomId } },
+    });
+    if (!membership) throw new ForbiddenException('Not a member of this room');
+    if (options?.replyToId) {
+      const repliedTo = await this.prisma.message.findFirst({
+        where: { id: options.replyToId, roomId }, select: { id: true },
+      });
+      if (!repliedTo) throw new NotFoundException('Replied-to message not found');
+    }
     return this.prisma.message.create({
       data: {
         roomId,
@@ -271,6 +327,13 @@ async setUserOnline(userId: string, isOnline: boolean) {
   // ── React to Message ──────────────────────────────────────────────
   async reactToMessage(firebaseUid: string, messageId: string, emoji: string) {
     const user = await this.getDbUser(firebaseUid);
+    if (!emoji || emoji.length > 32) throw new ForbiddenException('Invalid reaction');
+    const message = await this.prisma.message.findUnique({ where: { id: messageId }, select: { roomId: true } });
+    if (!message) throw new NotFoundException('Message not found');
+    const membership = await this.prisma.chatRoomMember.findUnique({
+      where: { userId_roomId: { userId: user.id, roomId: message.roomId } },
+    });
+    if (!membership) throw new ForbiddenException('Not a member of this room');
     const existing = await this.prisma.messageReaction.findUnique({
       where: { messageId_userId: { messageId, userId: user.id } },
     });
@@ -295,6 +358,10 @@ async setUserOnline(userId: string, isOnline: boolean) {
   // ── Mark Messages as Read ─────────────────────────────────────────
   async markAsRead(roomId: string, firebaseUid: string) {
     const user = await this.getDbUser(firebaseUid);
+    const member = await this.prisma.chatRoomMember.findUnique({
+      where: { userId_roomId: { userId: user.id, roomId } },
+    });
+    if (!member) throw new ForbiddenException('Not a member of this room');
     return this.prisma.message.updateMany({
       where: { roomId, isRead: false, senderId: { not: user.id } },
       data: { isRead: true },
@@ -302,7 +369,12 @@ async setUserOnline(userId: string, isOnline: boolean) {
   }
 
   // ── Get Room by ID ────────────────────────────────────────────────
-  async getRoomById(roomId: string) {
+  async getRoomById(roomId: string, firebaseUid: string) {
+    const user = await this.getDbUser(firebaseUid);
+    const member = await this.prisma.chatRoomMember.findUnique({
+      where: { userId_roomId: { userId: user.id, roomId } },
+    });
+    if (!member) throw new ForbiddenException('Not a member of this room');
     return this.prisma.chatRoom.findUnique({
       where: { id: roomId },
       include: {
@@ -328,6 +400,10 @@ async setUserOnline(userId: string, isOnline: boolean) {
     },
   ) {
     const user = await this.getDbUser(firebaseUid);
+    if ((data.text?.length ?? 0) > 1_000 || (data.mediaUrl?.length ?? 0) > 2_000 ||
+        !['text', 'image', 'video'].includes(data.type ?? 'text')) {
+      throw new ForbiddenException('Invalid status content.');
+    }
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
     return this.prisma.status.create({
       data: {
@@ -346,19 +422,32 @@ async setUserOnline(userId: string, isOnline: boolean) {
   }
 
   async getStatuses(firebaseUid: string) {
-    await this.getDbUser(firebaseUid);
-    return this.prisma.status.findMany({
-      where: { expiresAt: { gt: new Date() } },
+    const user = await this.getDbUser(firebaseUid);
+    const statuses = await this.prisma.status.findMany({
+      where: {
+        expiresAt: { gt: new Date() },
+        OR: [{ userId: user.id }, ...(user.universityId ? [{ user: { universityId: user.universityId } }] : [])],
+      },
       include: {
         user: { select: { id: true, displayName: true, photoURL: true } },
         views: { select: { userId: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
+    return statuses.map((status) => ({ ...status, views: status.userId === user.id ? status.views : [] }));
   }
 
   async viewStatus(firebaseUid: string, statusId: string) {
     const user = await this.getDbUser(firebaseUid);
+    const status = await this.prisma.status.findFirst({
+      where: {
+        id: statusId,
+        expiresAt: { gt: new Date() },
+        ...(user.universityId ? { user: { universityId: user.universityId } } : { userId: user.id }),
+      },
+      select: { id: true },
+    });
+    if (!status) throw new NotFoundException('Status not found');
     return this.prisma.statusView.upsert({
       where: { statusId_userId: { statusId, userId: user.id } },
       update: {},

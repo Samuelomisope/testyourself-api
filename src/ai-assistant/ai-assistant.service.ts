@@ -28,7 +28,7 @@ export class AIAssistantService {
     // 1. Persist the image first so nothing is lost even if a later step fails.
     // Reuses the existing UploadService — stores an unsigned stable reference,
     // signed fresh on read via getSignedUrlForStoredRef (matches existing pattern).
-    const storedUrl = await this.uploadService.uploadFile(file, 'ask-unilib');
+    const storedUrl = await this.uploadService.uploadFile(file, 'ask-unilib', studentId);
     const imageKey = this.uploadService.extractKey(storedUrl);
 
     const record = await this.prisma.askUniLibQuery.create({

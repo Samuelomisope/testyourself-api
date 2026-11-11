@@ -16,7 +16,6 @@ import { UploadModule } from './upload/upload.module';
 import { ChatModule } from './chat/chat.module';
 import { AiModule } from './ai/ai.module';
 import { FeedbackModule } from './feedback/feedback.module';
-import { AnnouncementModule } from './announcement/announcement.module';
 import { FlashcardModule } from './flashcard/flashcard.module';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { SignedUrlInterceptor } from './common/signed-url.interceptor';
@@ -34,10 +33,15 @@ import { ProgramModule } from './program/program.module';
 import { CoursesModule } from './courses/courses.module';
 import { AIAssistantModule } from './ai-assistant/ai-assistant.module';
 import { ClassificationModule } from './classification/classification.module';
+import { ScheduleModule } from '@nestjs/schedule';
+import { NotificationsModule } from './notifications/notifications.module';
+import { BillingModule } from './billing/billing.module';
+import { SearchModule } from './search/search.module';
 
 @Module({
  imports: [
   ConfigModule.forRoot({ isGlobal: true }),
+  ScheduleModule.forRoot(),
   ThrottlerModule.forRootAsync({
     useFactory: () => ({
       throttlers: [
@@ -62,7 +66,6 @@ import { ClassificationModule } from './classification/classification.module';
     AiModule,
     AIAssistantModule,
     FeedbackModule,
-    AnnouncementModule,
     FlashcardModule,
     NovelsModule,
     RedisModule,
@@ -71,9 +74,12 @@ import { ClassificationModule } from './classification/classification.module';
     ProgramModule,
     CoursesModule,
     ClassificationModule,
+    NotificationsModule,
+    BillingModule,
+    SearchModule,
   ],
   controllers: [SearchController, AppController],
- providers: [PrismaService, 
+providers: [
   
   AppService,
     {

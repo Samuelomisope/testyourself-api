@@ -68,6 +68,16 @@ export class AdminController {
     return this.adminService.dismissMaterialReview(id);
   }
 
+  @Patch('materials/:id/confirm-duplicate')
+  async confirmMaterialDuplicate(@Param('id') id: string) {
+    return this.adminService.confirmMaterialDuplicate(id);
+  }
+
+  @Patch('materials/:id/restore-duplicate')
+  async restoreMaterialDuplicate(@Param('id') id: string) {
+    return this.adminService.restoreMaterialDuplicate(id);
+  }
+
   // ── Products ─────────────────────────────────────────────────────────────
   @Get('products')
   async getAllProducts() {

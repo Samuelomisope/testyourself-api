@@ -35,7 +35,10 @@ export class SearchController {
             { description: { contains: q, mode: 'insensitive' } },
             { faculty: { contains: q, mode: 'insensitive' } },
           ],
-          AND: [{ OR: [{ isPublic: true }, { userId: user?.id }] }],
+          AND: [
+            { classificationStatus: { not: 'DUPLICATE' } },
+            { OR: [{ isPublic: true }, { userId: user?.id }] },
+          ],
         },
          take,
         skip,
@@ -56,7 +59,7 @@ export class SearchController {
         },
        take,
         skip,
-        select: { id: true, displayName: true, email: true, photoURL: true },
+        select: { id: true, displayName: true, photoURL: true },
       }),
 
       // Marketplace products

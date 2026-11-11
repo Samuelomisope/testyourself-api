@@ -1,7 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
 export class UploadService {
@@ -14,9 +14,11 @@ export class UploadService {
     },
   });
 
-  async uploadFile(file: Express.Multer.File, folder: string = 'general'): Promise<string> {
+  async uploadFile(file: Express.Multer.File, folder: string, ownerId: string): Promise<string> {
+    if (!ownerId || !/^[a-z0-9_-]{1,80}$/i.test(folder)) throw new BadRequestException('Invalid upload owner or folder.');
     const ext = file.originalname.split('.').pop();
-    const key = `${folder}/${uuidv4()}.${ext}`;
+    const safeExt = ext && /^[a-z0-9]{1,10}$/i.test(ext) ? ext.toLowerCase() : 'bin';
+    const key = `users/${ownerId}/${folder}/${randomUUID()}.${safeExt}`;
 
     await this.s3.send(new PutObjectCommand({
       Bucket: process.env.R2_BUCKET_NAME,
@@ -54,6 +56,28 @@ export class UploadService {
   }
   return clean;
 }
+
+  isOwnedProfilePhoto(storedUrl: string, ownerId: string): boolean {
+    return this.isOwnedUserUpload(storedUrl, ownerId, 'profile-pictures');
+  }
+
+  isOwnedUserUpload(storedUrl: string, ownerId: string, folder: string): boolean {
+    try {
+      const endpoint = new URL(process.env.R2_ENDPOINT!);
+      const candidate = new URL(storedUrl);
+      const bucketPrefix = `${endpoint.pathname.replace(/\/$/, '')}/${process.env.R2_BUCKET_NAME}/`;
+      if (candidate.origin !== endpoint.origin || !candidate.pathname.startsWith(bucketPrefix)) return false;
+      const key = decodeURIComponent(candidate.pathname.slice(bucketPrefix.length));
+      return key.startsWith(`users/${ownerId}/${folder}/`);
+    } catch {
+      return false;
+    }
+  }
+
+  isStorageReference(value: string): boolean {
+    return value.includes('.r2.cloudflarestorage.com/') || value.includes('.r2.dev/') ||
+      value.includes('.wasabisys.com/') || (!!process.env.R2_BUCKET_NAME && value.includes(process.env.R2_BUCKET_NAME));
+  }
   async getSignedUrlForStoredRef(storedUrl: string): Promise<string> {
     const key = this.extractKey(storedUrl);
     const command = new GetObjectCommand({
