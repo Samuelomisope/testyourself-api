@@ -37,6 +37,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { NotificationsModule } from './notifications/notifications.module';
 import { BillingModule } from './billing/billing.module';
 import { SearchModule } from './search/search.module';
+import { ClassroomModule } from './classroom/classroom.module';
 
 @Module({
  imports: [
@@ -77,6 +78,7 @@ import { SearchModule } from './search/search.module';
     NotificationsModule,
     BillingModule,
     SearchModule,
+    ClassroomModule,
   ],
   controllers: [SearchController, AppController],
 providers: [
