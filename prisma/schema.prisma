@@ -113,6 +113,8 @@ model User {
   askUniLibQueries AskUniLibQuery[]
   isOnline      Boolean   @default(false)
   premiumPayments PremiumPayment[]
+  classroomSessions ClassroomSession[]
+  classroomUsage ClassroomUsage[]
 }
 
 model PremiumPayment {
@@ -178,6 +180,7 @@ model StudyMaterial {
   university     University      @relation(fields: [universityId], references: [id])
   user           User            @relation(fields: [userId], references: [id])
   courseRef      Course?         @relation(fields: [courseId], references: [id])
+  classroomDocuments ClassroomDocument[]
   
   fileHash                 String?               @db.VarChar(64) // SHA-256 hex digest
   classificationStatus     ClassificationStatus  @default(PENDING)
@@ -278,6 +281,7 @@ model Course {
   program        Program         @relation(fields: [programId], references: [id], onDelete: Cascade)
   studyMaterials StudyMaterial[]
   crossListedIn  ProgramCourse[] // other Programs this course is shared with
+  classroomSessions ClassroomSession[]
 
   @@unique([programId, code])
 }
@@ -800,4 +804,152 @@ model StudentActivityEvent {
   @@index([studentId, eventType, createdAt])
   @@index([courseId, createdAt])
   @@unique([studentId, idempotencyKey])
+}
+
+enum ClassroomSessionStatus {
+  ACTIVE
+  ARCHIVED
+  DELETING
+  DELETE_FAILED
+}
+
+enum ClassroomDocumentStatus {
+  PROCESSING
+  READY
+  FAILED
+  DELETE_PENDING
+  DELETE_FAILED
+  DELETED
+}
+
+enum ClassroomDocumentSource {
+  UPLOAD
+  STUDY_MATERIAL
+}
+
+enum ClassroomTurnRequestStatus {
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum ClassroomTurnRole {
+  STUDENT
+  TUTOR
+}
+
+model ClassroomSession {
+  id                    String                  @id @default(uuid())
+  userId                String
+  courseId              String?
+  title                 String?
+  topic                 String
+  status                ClassroomSessionStatus  @default(ACTIVE)
+  tutorVoice            String                  @default("FEMALE")
+  nextTurnSequence      Int                     @default(0)
+  nextBoardSequence     Int                     @default(0)
+  activeTurnRequestId   String?
+  turnLeaseVersion      Int                     @default(0)
+  turnLeaseExpiresAt    DateTime?
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+  user                  User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course                Course?                 @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  documents             ClassroomDocument[]
+  turns                 ClassroomTurn[]
+  turnRequests          ClassroomTurnRequest[]
+
+  @@index([userId, updatedAt])
+  @@index([userId, status, updatedAt])
+  @@index([courseId, updatedAt])
+}
+
+model ClassroomDocument {
+  id                String                   @id @default(uuid())
+  sessionId         String
+  source            ClassroomDocumentSource
+  sourceMaterialId  String?
+  originalName      String
+  mimeType          String
+  byteSize          Int
+  sha256            String?
+  storageKey        String?
+  status            ClassroomDocumentStatus  @default(PROCESSING)
+  extractionMethod  String?
+  extractedChars    Int?
+  failureCode       String?
+  deleteAttempts    Int                      @default(0)
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+  deletedAt         DateTime?
+  session           ClassroomSession        @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  sourceMaterial    StudyMaterial?          @relation(fields: [sourceMaterialId], references: [id], onDelete: SetNull)
+  chunks            ClassroomDocumentChunk[]
+
+  @@index([sessionId, status, createdAt])
+  @@index([status, updatedAt])
+  @@index([sourceMaterialId])
+}
+
+model ClassroomDocumentChunk {
+  id             String   @id @default(uuid())
+  documentId     String
+  chunkIndex     Int
+  pageStart      Int?
+  pageEnd        Int?
+  text           String   @db.Text
+  document       ClassroomDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, chunkIndex])
+  @@index([documentId, pageStart])
+}
+
+model ClassroomTurnRequest {
+  id               String                    @id @default(uuid())
+  sessionId        String
+  idempotencyKey   String
+  requestHash      String                    @db.VarChar(64)
+  status           ClassroomTurnRequestStatus @default(PROCESSING)
+  leaseVersion     Int
+  errorCode        String?
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+  session          ClassroomSession          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  turns            ClassroomTurn[]
+
+  @@unique([sessionId, idempotencyKey])
+  @@index([sessionId, status, createdAt])
+}
+
+model ClassroomTurn {
+  id          String             @id @default(uuid())
+  sessionId   String
+  requestId   String
+  sequence    Int
+  role        ClassroomTurnRole
+  content     String             @db.Text
+  response    Json?
+  provider    String?
+  model       String?
+  createdAt   DateTime           @default(now())
+  session     ClassroomSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  request     ClassroomTurnRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, sequence])
+  @@unique([requestId, role])
+  @@index([sessionId, createdAt])
+}
+
+model ClassroomUsage {
+  id                String   @id @default(uuid())
+  userId            String
+  usageDate         DateTime @db.Date
+  turnsUsed         Int      @default(0)
+  uploadBytesUsed   BigInt   @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, usageDate])
+  @@index([usageDate])
 }
