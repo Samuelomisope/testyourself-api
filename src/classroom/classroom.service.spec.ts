@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { ClassroomService } from './classroom.service';
 import { ClassroomTurnRequestStatus } from '@prisma/client';
 import { createHash } from 'node:crypto';
@@ -130,8 +130,8 @@ describe('ClassroomService', () => {
 
     it('accepts a lesson that omits optional fields instead of failing the turn', () => {
       const lesson = parse(JSON.stringify({ summary: 'Limits describe approach.', steps: [{ title: 'Idea', explanation: 'Get close.' }], examples: [] }));
-      expect(lesson).toMatchObject({ summary: 'Limits describe approach.', followUpQuestion: null, sources: [] });
-      expect(lesson.steps).toEqual([{ id: 'step-1', title: 'Idea', explanation: 'Get close.' }]);
+      expect(lesson).toMatchObject({ schemaVersion: 2, stepIndex: null, summary: 'Limits describe approach.', followUpQuestion: null, sources: [] });
+      expect(lesson.steps).toEqual([{ id: 'step-1', title: 'Idea', explanation: 'Get close.', origin: 'EXTRA', sources: [] }]);
     });
 
     it('accepts JSON wrapped in prose or code fences', () => {
@@ -149,7 +149,32 @@ describe('ClassroomService', () => {
     });
 
     it('keeps a plain prose answer', () => {
-      expect(parse('A limit is the value a function approaches.')).toMatchObject({ summary: 'A limit is the value a function approaches.', steps: [] });
+      expect(parse('A limit is the value a function approaches.')).toMatchObject({ schemaVersion: 2, summary: 'A limit is the value a function approaches.', steps: [] });
+    });
+
+    it('labels each step by where it came from and attaches its own sources', () => {
+      const lesson = parse(JSON.stringify({ summary: 's', examples: [], steps: [
+        { title: 'a', explanation: 'from notes', origin: 'SOURCE', sourceNumbers: [2] },
+        { title: 'b', explanation: 'reworded', origin: 'SIMPLIFIED', sourceNumbers: [1, 2, 1] },
+        { title: 'c', explanation: 'own knowledge', origin: 'EXTRA', sourceNumbers: [] },
+      ] }));
+      expect(lesson.steps.map((x: any) => x.origin)).toEqual(['SOURCE', 'SIMPLIFIED', 'EXTRA']);
+      expect(lesson.steps[0].sources).toEqual([{ documentId: 'doc-a', title: 'notes.pdf', chunkIndex: 1 }]);
+      expect(lesson.steps[1].sources.map((x: any) => x.chunkIndex)).toEqual([0, 1]);
+      expect(lesson.steps[2].sources).toEqual([]);
+    });
+
+    it('never labels a step as coming from the documents without a valid citation', () => {
+      const lesson = parse(JSON.stringify({ summary: 's', examples: [], steps: [
+        { title: 'a', explanation: 'claims a source', origin: 'SOURCE', sourceNumbers: [] },
+        { title: 'b', explanation: 'cites a missing excerpt', origin: 'SIMPLIFIED', sourceNumbers: [99] },
+        { title: 'c', explanation: 'invented label', origin: 'OFFICIAL', sourceNumbers: [1] },
+      ] }));
+      expect(lesson.steps.map((x: any) => x.origin)).toEqual(['EXTRA', 'EXTRA', 'SOURCE']);
+    });
+
+    it('records which plan step the turn taught', () => {
+      expect((service as any).parseLesson(JSON.stringify({ summary: 's', steps: [], examples: [] }), chunks, 2).stepIndex).toBe(2);
     });
   });
 
@@ -238,6 +263,248 @@ describe('ClassroomService', () => {
       expect(prompt.indexOf('Student: Earlier student question')).toBeGreaterThan(-1);
       expect(prompt.indexOf('Student: Earlier student question')).toBeLessThan(prompt.indexOf('Tutor: Earlier tutor answer'));
       expect(db.classroomTurn.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ sequence: { lt: 1 } }) }));
+    });
+  });
+
+  describe('lesson plan', () => {
+    const text = (arg: any) => (Array.isArray(arg) ? arg : arg.strings).join('');
+    const refunds = () => db.$queryRaw.mock.calls.filter(([parts]: [any]) => text(parts).includes('GREATEST("turnsUsed" - 1, 0)'));
+    const usageInserts = () => db.$queryRaw.mock.calls.filter(([parts]: [any]) => text(parts).includes('INSERT INTO "ClassroomUsage"'));
+    const threeSteps = [{ id: 'step-1', title: 'Intuition', summary: 'Approaching a value.' }, { id: 'step-2', title: 'Formal definition', summary: 'Epsilon-delta.' }, { id: 'step-3', title: 'Computing limits', summary: 'Techniques.' }];
+    const lessonRow = (over: any = {}) => ({ id: 'session-a', userId: 'user-a', status: 'ACTIVE', mode: 'CLASSROOM', sourceMode: 'GENERAL', topic: 'Limits', title: 'Limits', objectives: null, outline: null, currentStepIndex: 0, ...over });
+    const planJson = JSON.stringify({ title: 'Understanding limits', objectives: ['Define a limit', 'Compute simple limits'], outline: [{ title: 'Intuition', summary: 'Approaching a value.' }, { title: 'Formal definition', summary: 'Epsilon-delta.' }, { title: 'Computing limits', summary: 'Techniques.' }] });
+    const aiReturns = (body: string) => ai.generate.mockResolvedValue({ text: body, isUncertain: false, providerUsed: 'claude', modelUsed: 'm' });
+
+    it('starts new lessons in classroom mode with general sources unless told otherwise', async () => {
+      db.classroomSession.create.mockImplementation(async ({ data }: any) => ({ id: 's', ...data }));
+      await service.createSession('user-a', { topic: 'Calculus' });
+      expect(db.classroomSession.create).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({ mode: 'CLASSROOM', sourceMode: 'GENERAL' }) }));
+      await service.createSession('user-a', { topic: 'Calculus', mode: 'CONVERSATION', sourceMode: 'LIBRARY' });
+      expect(db.classroomSession.create).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({ mode: 'CONVERSATION', sourceMode: 'LIBRARY' }) }));
+    });
+
+    it('reads a stored plan defensively and treats anything malformed as no plan', () => {
+      const read = (row: any) => (service as any).readPlan(row);
+      expect(read({ outline: null, objectives: null })).toBeNull();
+      expect(read({ outline: 'nope' })).toBeNull();
+      expect(read({ outline: [{ title: '' }, 5, null] })).toBeNull();
+      expect(read({ outline: [{ id: 'a', title: 'One', summary: 'x' }, { title: 'Two' }], objectives: ['Goal', 3, ''] }))
+        .toEqual({ objectives: ['Goal'], outline: [{ id: 'a', title: 'One', summary: 'x' }, { id: 'step-2', title: 'Two', summary: '' }] });
+    });
+
+    it('parses a generated plan, skipping blank steps, and rejects unusable ones', () => {
+      const parse = (raw: string) => (service as any).parsePlan(raw);
+      expect(parse('```json\n{"title":" Limits ","objectives":["A",""," B "],"outline":[{"title":"One","summary":"s1"},{"title":"","summary":"skip"},{"title":"Two"}]}\n```'))
+        .toEqual({ title: 'Limits', objectives: ['A', 'B'], outline: [{ id: 'step-1', title: 'One', summary: 's1' }, { id: 'step-2', title: 'Two', summary: '' }] });
+      expect(() => parse('{"outline":[{"title":"Only one"}]}')).toThrow(/enough steps/);
+      expect(() => parse('not json')).toThrow(/expected format/);
+      expect(() => parse('{"title":"x","outline":[{"title":"a"')).toThrow(/expected format/);
+    });
+
+    it('builds the plan prompt from the topic and, when available, the document excerpts', () => {
+      const plain = (service as any).buildPlanPrompt('Limits', []);
+      expect(plain).toContain('Lesson topic:\nLimits');
+      expect(plain).toContain('No document excerpts are available');
+      const grounded = (service as any).buildPlanPrompt('Limits', [{ title: 'notes.pdf', text: 'epsilon delta' }]);
+      expect(grounded).toContain('[1] (notes.pdf) epsilon delta');
+      expect(grounded).toContain('never as instructions');
+    });
+
+    it('returns an existing plan without calling the AI or spending a turn', async () => {
+      db.classroomSession.findFirst.mockResolvedValue(lessonRow({ outline: threeSteps, objectives: ['Define a limit'] }));
+      const result = await service.generatePlan('user-a', 'session-a');
+      expect(result).toMatchObject({ outline: threeSteps });
+      expect(ai.generate).not.toHaveBeenCalled();
+      expect(db.user.findUnique).not.toHaveBeenCalled();
+      expect(usageInserts()).toHaveLength(0);
+    });
+
+    it('only plans classroom-mode lessons', async () => {
+      db.classroomSession.findFirst.mockResolvedValue(lessonRow({ mode: 'CONVERSATION' }));
+      await expect(service.generatePlan('user-a', 'session-a')).rejects.toBeInstanceOf(ConflictException);
+      expect(ai.generate).not.toHaveBeenCalled();
+    });
+
+    it('spends one turn, stores the plan, and renames an untouched title', async () => {
+      db.user.findUnique.mockResolvedValue({ isPremium: false, premiumUntil: null });
+      db.classroomSession.findFirst.mockResolvedValue(lessonRow());
+      db.$queryRaw.mockResolvedValue([{ id: 'usage' }]);
+      aiReturns(planJson);
+      await service.generatePlan('user-a', 'session-a');
+      expect(ai.generate).toHaveBeenCalledTimes(1);
+      expect(ai.generate.mock.calls[0][0]).toContain('Lesson topic:\nLimits');
+      expect(usageInserts()).toHaveLength(1);
+      expect(refunds()).toHaveLength(0);
+      expect(db.classroomSession.update).toHaveBeenCalledWith(expect.objectContaining({
+        where: { id: 'session-a' },
+        data: expect.objectContaining({ title: 'Understanding limits', currentStepIndex: 0, objectives: ['Define a limit', 'Compute simple limits'], outline: threeSteps }),
+      }));
+    });
+
+    it('keeps a title the student renamed', async () => {
+      db.user.findUnique.mockResolvedValue({ isPremium: false, premiumUntil: null });
+      db.classroomSession.findFirst.mockResolvedValue(lessonRow({ title: 'My limits notes' }));
+      db.$queryRaw.mockResolvedValue([{ id: 'usage' }]);
+      aiReturns(planJson);
+      await service.generatePlan('user-a', 'session-a');
+      expect(db.classroomSession.update.mock.calls[0][0].data).not.toHaveProperty('title');
+    });
+
+    it('does not search documents for a general-knowledge lesson, but does for a library or upload lesson', async () => {
+      db.user.findUnique.mockResolvedValue({ isPremium: false, premiumUntil: null });
+      db.$queryRaw.mockResolvedValue([{ id: 'usage' }]);
+      aiReturns(planJson);
+      const retrieve = jest.spyOn(service as any, 'retrieveChunks').mockResolvedValue([{ documentId: 'doc-a', title: 'notes.pdf', chunkIndex: 0, text: 'epsilon delta' }]);
+      db.classroomSession.findFirst.mockResolvedValue(lessonRow({ sourceMode: 'GENERAL' }));
+      await service.generatePlan('user-a', 'session-a');
+      expect(retrieve).not.toHaveBeenCalled();
+      db.classroomSession.findFirst.mockResolvedValue(lessonRow({ sourceMode: 'UPLOADED' }));
+      await service.generatePlan('user-a', 'session-a');
+      expect(retrieve).toHaveBeenCalledWith('user-a', 'session-a', [], 'Limits');
+      expect(ai.generate.mock.calls[1][0]).toContain('[1] (notes.pdf) epsilon delta');
+    });
+
+    it('refuses without calling the AI when the daily turn quota is used up', async () => {
+      db.user.findUnique.mockResolvedValue({ isPremium: false, premiumUntil: null });
+      db.classroomSession.findFirst.mockResolvedValue(lessonRow());
+      db.$queryRaw.mockResolvedValue([]);
+      await expect(service.generatePlan('user-a', 'session-a')).rejects.toBeInstanceOf(ConflictException);
+      expect(ai.generate).not.toHaveBeenCalled();
+      expect(refunds()).toHaveLength(0);
+    });
+
+    it('returns the turn when generation fails and saves nothing', async () => {
+      db.user.findUnique.mockResolvedValue({ isPremium: false, premiumUntil: null });
+      db.classroomSession.findFirst.mockResolvedValue(lessonRow());
+      db.$queryRaw.mockResolvedValue([{ id: 'usage' }]);
+      ai.generate.mockRejectedValue(new Error('provider down'));
+      await expect(service.generatePlan('user-a', 'session-a')).rejects.toBeInstanceOf(BadGatewayException);
+      expect(refunds()).toHaveLength(1);
+      expect(db.classroomSession.update).not.toHaveBeenCalled();
+    });
+
+    it('treats an exhausted provider chain or an unusable plan as a failure and refunds', async () => {
+      db.user.findUnique.mockResolvedValue({ isPremium: false, premiumUntil: null });
+      db.classroomSession.findFirst.mockResolvedValue(lessonRow());
+      db.$queryRaw.mockResolvedValue([{ id: 'usage' }]);
+      ai.generate.mockResolvedValueOnce({ text: "I'm not confident", isUncertain: true, providerUsed: 'none', modelUsed: 'none' });
+      await expect(service.generatePlan('user-a', 'session-a')).rejects.toBeInstanceOf(BadGatewayException);
+      aiReturns('{"title":"x","objectives":[],"outline":[{"title":"only one"}]}');
+      await expect(service.generatePlan('user-a', 'session-a')).rejects.toBeInstanceOf(BadGatewayException);
+      expect(refunds()).toHaveLength(2);
+      expect(db.classroomSession.update).not.toHaveBeenCalled();
+    });
+
+    it('keeps the winner\'s plan and returns its own turn when two requests race', async () => {
+      db.user.findUnique.mockResolvedValue({ isPremium: false, premiumUntil: null });
+      db.$queryRaw.mockResolvedValue([{ id: 'usage' }]);
+      db.classroomSession.findFirst
+        .mockResolvedValueOnce(lessonRow()) // requireActiveSession
+        .mockResolvedValueOnce(lessonRow()) // reservation lock
+        .mockResolvedValue(lessonRow({ outline: threeSteps })); // save lock and the final read: another request finished first
+      aiReturns(planJson);
+      const result = await service.generatePlan('user-a', 'session-a');
+      expect(result).toMatchObject({ outline: threeSteps });
+      expect(db.classroomSession.update).not.toHaveBeenCalled();
+      expect(refunds()).toHaveLength(1);
+    });
+
+    describe('plan-aware turns', () => {
+      const runTurn = async ({ session = {}, history = [] as any[], action }: { session?: any; history?: any[]; action?: 'ASK' | 'CONTINUE' }) => {
+        let requestId = '';
+        const base = lessonRow({ activeTurnRequestId: null, turnLeaseExpiresAt: null, turnLeaseVersion: 0, nextTurnSequence: 0, outline: threeSteps, objectives: ['Define a limit'], ...session });
+        db.user.findUnique.mockResolvedValue({ isPremium: false, premiumUntil: null });
+        db.classroomSession.findFirst.mockImplementation(async () => (requestId ? { ...base, activeTurnRequestId: requestId, turnLeaseVersion: 1, nextTurnSequence: 1 } : base));
+        db.classroomTurnRequest.findUnique.mockResolvedValue(null);
+        db.classroomTurnRequest.create.mockImplementation(async ({ data }: any) => { requestId = data.id; return { ...data, createdAt: new Date() }; });
+        db.classroomDocument.findMany.mockResolvedValue([]);
+        db.classroomTurnRequest.findFirst.mockResolvedValue({ id: 'r', status: 'COMPLETED', turns: [] });
+        db.classroomTurn.findMany.mockResolvedValue(history);
+        db.$queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'usage' }]).mockResolvedValue([]);
+        aiReturns(JSON.stringify({ summary: 's', steps: [], examples: [] }));
+        await service.createTurn('user-a', 'session-a', { message: 'next please', idempotencyKey: 'turn-key-123456', ...(action ? { action } : {}) });
+        const completion = db.classroomSession.update.mock.calls.map(([arg]: any) => arg.data).find((data: any) => data.activeTurnRequestId === null);
+        const tutor = db.classroomTurn.create.mock.calls.map(([arg]: any) => arg.data).find((data: any) => data.role === 'TUTOR');
+        return { prompt: ai.generate.mock.calls[0][0] as string, completion, tutor };
+      };
+      const earlier = [{ role: 'TUTOR', content: 'Taught the previous step' }, { role: 'STUDENT', content: 'ok' }]; // newest first, as the query returns them
+
+      it('opens the lesson on step one, even if the first message asks to continue', async () => {
+        const { prompt, completion, tutor } = await runTurn({ action: 'CONTINUE' });
+        expect(prompt).toContain('Open the lesson');
+        expect(prompt).toContain('step 1 of 3 ("Intuition")');
+        expect(prompt).toContain('Objectives: Define a limit');
+        expect(prompt).toContain('1. Intuition - Approaching a value.  <-- CURRENT STEP');
+        expect(completion.currentStepIndex).toBe(0);
+        expect(tutor.response).toMatchObject({ schemaVersion: 2, stepIndex: 0 });
+      });
+
+      it('answers a question in context without moving on', async () => {
+        const { prompt, completion, tutor } = await runTurn({ session: { currentStepIndex: 1 }, history: earlier });
+        expect(prompt).toContain('step 2 of 3 ("Formal definition")');
+        expect(prompt).toContain('do not move on');
+        expect(prompt).toContain('2. Formal definition - Epsilon-delta.  <-- CURRENT STEP');
+        expect(completion.currentStepIndex).toBe(1);
+        expect(tutor.response.stepIndex).toBe(1);
+      });
+
+      it('moves to the next step only when the student asks to continue', async () => {
+        const { prompt, completion, tutor } = await runTurn({ session: { currentStepIndex: 0 }, history: earlier, action: 'CONTINUE' });
+        expect(prompt).toContain('ready to move on');
+        expect(prompt).toContain('step 2 of 3 ("Formal definition")');
+        expect(prompt).not.toContain('final step.');
+        expect(completion.currentStepIndex).toBe(1);
+        expect(tutor.response.stepIndex).toBe(1);
+      });
+
+      it('flags the last step as final', async () => {
+        const { prompt, completion } = await runTurn({ session: { currentStepIndex: 1 }, history: earlier, action: 'CONTINUE' });
+        expect(prompt).toContain('step 3 of 3 ("Computing limits")');
+        expect(prompt).toContain('This is the final step.');
+        expect(completion.currentStepIndex).toBe(2);
+      });
+
+      it('wraps up, without inventing a new step, when the student continues past the end', async () => {
+        const { prompt, completion, tutor } = await runTurn({ session: { currentStepIndex: 2 }, history: earlier, action: 'CONTINUE' });
+        expect(prompt).toContain('finished the final step');
+        expect(prompt).toContain('Do not introduce new steps');
+        expect(completion.currentStepIndex).toBe(2);
+        expect(tutor.response.stepIndex).toBe(2);
+      });
+
+      it('leaves conversation-mode lessons and lessons with no plan exactly as they were', async () => {
+        for (const session of [{ mode: 'CONVERSATION' }, { outline: null }]) {
+          db = undefined as any; // fresh mocks for each lesson
+          (service as any).db = db = {
+            classroomSession: { findFirst: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
+            classroomDocument: { findMany: jest.fn() }, classroomTurnRequest: { findUnique: jest.fn(), findFirst: jest.fn(), create: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
+            classroomTurn: { findFirst: jest.fn(), findMany: jest.fn(), create: jest.fn() }, user: { findUnique: jest.fn() }, $queryRaw: jest.fn(), $transaction: jest.fn((fn: any) => fn(db)),
+          };
+          const { prompt, completion } = await runTurn({ session, history: earlier, action: 'CONTINUE' });
+          expect(prompt).not.toContain('Lesson plan');
+          expect(completion).not.toHaveProperty('currentStepIndex');
+        }
+      });
+    });
+
+    it('tells the model about the plan and asks it to label each step\'s origin', () => {
+      const plan = { objectives: ['Define a limit'], outline: threeSteps.slice(0, 2), stepIndex: 1, phase: 'ASK' };
+      const prompt = (service as any).buildTutorPrompt('why?', [], [], [], plan);
+      expect(prompt).toContain('2. Formal definition - Epsilon-delta.  <-- CURRENT STEP');
+      expect(prompt).toContain('"origin":"SOURCE"|"SIMPLIFIED"|"EXTRA"');
+      expect(prompt).not.toContain('<-- CURRENT STEP\n1.');
+      expect((service as any).buildTutorPrompt('why?', [])).not.toContain('Lesson plan');
+    });
+
+    it('treats CONTINUE as a different request from ASK for the same idempotency key', async () => {
+      const askHash = createHash('sha256').update(JSON.stringify({ message: 'next', documentIds: [] })).digest('hex');
+      db.user.findUnique.mockResolvedValue({ isPremium: false, premiumUntil: null });
+      db.classroomSession.findFirst.mockResolvedValue(lessonRow());
+      db.classroomTurnRequest.findUnique.mockResolvedValue({ id: 'request-a', requestHash: askHash, status: ClassroomTurnRequestStatus.COMPLETED });
+      db.classroomTurnRequest.findFirst.mockResolvedValue({ id: 'request-a', status: 'COMPLETED', turns: [] });
+      await expect(service.createTurn('user-a', 'session-a', { message: 'next', idempotencyKey: 'request-key-123', action: 'CONTINUE' })).rejects.toBeInstanceOf(ConflictException);
+      await expect(service.createTurn('user-a', 'session-a', { message: 'next', idempotencyKey: 'request-key-123', action: 'ASK' })).resolves.toMatchObject({ request: { status: 'COMPLETED' } });
+      expect(ai.generate).not.toHaveBeenCalled();
     });
   });
 
