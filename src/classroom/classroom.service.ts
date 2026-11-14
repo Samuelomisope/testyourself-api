@@ -331,28 +331,31 @@ export class ClassroomService {
         ${selection}`;
     // Match ANY meaningful word. plainto_tsquery requires every word of the question to be in one chunk, which
     // almost never happens for a natural-language question and left attached documents unused.
+       // Match ANY meaningful word. plainto_tsquery requires every word of the question to be in one chunk, which
+    // almost never happens for a natural-language question and left attached documents unused.
     const terms = this.queryTerms(question);
     if (terms.length) {
       const tsquery = terms.join(' | ');
-      const ranked = await this.db.$queryRaw<Row[]>(Prisma.sql`
+      const ranked = (await this.db.$queryRaw(Prisma.sql`
         SELECT c."documentId", c."chunkIndex", c."text", d."originalName" AS "title"
         ${scope}
           AND to_tsvector('simple', c."text") @@ to_tsquery('simple', ${tsquery})
         ORDER BY ts_rank_cd(to_tsvector('simple', c."text"), to_tsquery('simple', ${tsquery})) DESC
         LIMIT ${MAX_RETRIEVED_CHUNKS}
-      `);
+      `)) as Row[];
       if (ranked?.length) return ranked;
     }
-    // No keyword match: still hand the tutor the opening of the attached documents so they are never silently ignored.
-    return (await this.db.$queryRaw<Row[]>(Prisma.sql`
+
+    // No keyword match: still hand the tutor the opening of the attached documents.
+    const fallback = (await this.db.$queryRaw(Prisma.sql`
       SELECT c."documentId", c."chunkIndex", c."text", d."originalName" AS "title"
       ${scope}
       ORDER BY d."createdAt" ASC, c."chunkIndex" ASC
       LIMIT ${MAX_RETRIEVED_CHUNKS}
-    `)) ?? [];
+    `)) as Row[];
+    return fallback ?? [];
   }
 
-  /** Letters/digits only, so the result is always safe to join into a tsquery. */
   private queryTerms(question: string): string[] {
     const terms = new Set<string>();
     for (const word of question.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? []) {
