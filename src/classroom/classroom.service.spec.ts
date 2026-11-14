@@ -90,11 +90,136 @@ describe('ClassroomService', () => {
   it('retrieves only ready chunks attached to the requested classroom', async () => {
     db.$queryRaw.mockResolvedValue([]);
     await (service as any).retrieveChunks('user-a', 'session-a', [], 'Explain energy transfer');
+    // One ranked keyword query, then the fallback query because the first returned nothing.
+    expect(db.$queryRaw).toHaveBeenCalledTimes(2);
+    for (const [call] of db.$queryRaw.mock.calls) {
+      const query = call.strings.join('');
+      expect(query).toContain('d."sessionId"');
+      expect(query).toContain('d."status" = \'READY\'');
+      expect(query).toContain('m."isPublic" = true');
+    }
+  });
+
+  it('matches any meaningful word of a long question instead of requiring all of them', async () => {
+    db.$queryRaw.mockResolvedValue([{ documentId: 'doc-a', chunkIndex: 0, text: 'substitution rule', title: 'notes.pdf' }]);
+    const rows = await (service as any).retrieveChunks('user-a', 'session-a', [], 'Please explain integration by substitution step by step');
+    expect(rows).toHaveLength(1);
     expect(db.$queryRaw).toHaveBeenCalledTimes(1);
-    const query = db.$queryRaw.mock.calls[0][0].strings.join('');
-    expect(query).toContain('d."sessionId"');
-    expect(query).toContain('d."status" = \'READY\'');
-    expect(query).toContain('m."isPublic" = true');
+    const call = db.$queryRaw.mock.calls[0][0];
+    expect(call.strings.join('')).toContain('to_tsquery');
+    expect(call.strings.join('')).not.toContain('plainto_tsquery');
+    expect(call.values).toContain('integration | substitution');
+  });
+
+  it('falls back to the opening of attached documents when no keyword matches', async () => {
+    db.$queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([{ documentId: 'doc-a', chunkIndex: 0, text: 'Introduction', title: 'notes.pdf' }]);
+    const rows = await (service as any).retrieveChunks('user-a', 'session-a', [], 'quantum entanglement');
+    expect(rows).toHaveLength(1);
+    expect(db.$queryRaw.mock.calls[1][0].strings.join('')).toContain('ORDER BY d."createdAt" ASC, c."chunkIndex" ASC');
+  });
+
+  it('only builds tsquery terms from letters and digits', () => {
+    const terms = (service as any).queryTerms("energy' | !drop & (table) <-> x:* 2024");
+    expect(terms).toEqual(['energy', 'drop', 'table', '2024']);
+    expect(terms.every((t: string) => /^[\p{L}\p{N}]+$/u.test(t))).toBe(true);
+  });
+
+  describe('parseLesson', () => {
+    const chunks = [{ documentId: 'doc-a', title: 'notes.pdf', chunkIndex: 0 }, { documentId: 'doc-a', title: 'notes.pdf', chunkIndex: 1 }];
+    const parse = (raw: string, c = chunks) => (service as any).parseLesson(raw, c);
+
+    it('accepts a lesson that omits optional fields instead of failing the turn', () => {
+      const lesson = parse(JSON.stringify({ summary: 'Limits describe approach.', steps: [{ title: 'Idea', explanation: 'Get close.' }], examples: [] }));
+      expect(lesson).toMatchObject({ summary: 'Limits describe approach.', followUpQuestion: null, sources: [] });
+      expect(lesson.steps).toEqual([{ id: 'step-1', title: 'Idea', explanation: 'Get close.' }]);
+    });
+
+    it('accepts JSON wrapped in prose or code fences', () => {
+      expect(parse('Here you go:\n```json\n{"summary":"ok","steps":[],"examples":[]}\n```').summary).toBe('ok');
+    });
+
+    it('drops citations that point at excerpts that were never supplied, and sorts the rest numerically', () => {
+      const many = Array.from({ length: 12 }, (_, i) => ({ documentId: 'doc-a', title: 't', chunkIndex: i }));
+      const lesson = parse(JSON.stringify({ summary: 's', steps: [{ title: 'a', explanation: 'b', sourceNumbers: [10, 2, 99] }], examples: [], sourceNumbers: [] }), many);
+      expect(lesson.sources.map((x: any) => x.chunkIndex)).toEqual([1, 9]);
+    });
+
+    it('never saves cut-off or malformed JSON as the tutor answer', () => {
+      expect(() => parse('{"summary":"Limits describe","steps":[{"title":"Idea","expl')).toThrow(/response format/);
+    });
+
+    it('keeps a plain prose answer', () => {
+      expect(parse('A limit is the value a function approaches.')).toMatchObject({ summary: 'A limit is the value a function approaches.', steps: [] });
+    });
+  });
+
+  it('does not duplicate excerpts by also passing them as provider context', async () => {
+    let requestId = '';
+    const session = { id: 'session-a', userId: 'user-a', status: 'ACTIVE', activeTurnRequestId: null, turnLeaseExpiresAt: null, turnLeaseVersion: 0, nextTurnSequence: 0 };
+    db.user.findUnique.mockResolvedValue({ isPremium: false, premiumUntil: null });
+    db.classroomSession.findFirst.mockImplementation(async () => (requestId ? { ...session, activeTurnRequestId: requestId, turnLeaseVersion: 1, nextTurnSequence: 1 } : session));
+    db.classroomTurnRequest.findUnique.mockResolvedValue(null);
+    db.classroomTurnRequest.create.mockImplementation(async ({ data }: any) => { requestId = data.id; return { ...data, createdAt: new Date() }; });
+    db.classroomDocument.findMany.mockResolvedValue([]);
+    db.classroomTurnRequest.findFirst.mockResolvedValue({ id: 'r', status: 'COMPLETED', turns: [] });
+    // admission lock, daily-turn insert, ranked retrieval, completion lock
+    db.$queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'usage' }]).mockResolvedValueOnce([{ documentId: 'doc-a', chunkIndex: 0, text: 'excerpt text', title: 'notes.pdf' }]).mockResolvedValueOnce([]);
+    ai.generate.mockResolvedValue({ text: JSON.stringify({ summary: 's', steps: [], examples: [] }), isUncertain: false, providerUsed: 'claude', modelUsed: 'm' });
+    await service.createTurn('user-a', 'session-a', { message: 'Explain limits', idempotencyKey: 'turn-key-123456' });
+    expect(ai.generate).toHaveBeenCalledTimes(1);
+    expect(ai.generate.mock.calls[0]).toHaveLength(1);
+    expect(ai.generate.mock.calls[0][0]).toContain('excerpt text');
+  });
+
+  describe('failed tutor responses', () => {
+    const arrange = (generate: () => Promise<any>) => {
+      const createdAt = new Date('2026-11-14T10:00:00Z');
+      db.user.findUnique.mockResolvedValue({ isPremium: false, premiumUntil: null });
+      db.classroomSession.findFirst.mockResolvedValue({ id: 'session-a', userId: 'user-a', status: 'ACTIVE', activeTurnRequestId: null, turnLeaseExpiresAt: null, turnLeaseVersion: 0, nextTurnSequence: 0 });
+      db.classroomTurnRequest.findUnique.mockResolvedValue(null);
+      db.classroomTurnRequest.create.mockImplementation(async ({ data }: any) => ({ ...data, createdAt }));
+      db.classroomTurnRequest.updateMany.mockResolvedValue({ count: 1 });
+      db.classroomDocument.findMany.mockResolvedValue([]);
+      db.$queryRaw.mockResolvedValue([{ id: 'usage' }]);
+      ai.generate.mockImplementation(generate);
+    };
+    const textOf = (arg: any) => (Array.isArray(arg) ? arg : arg.strings).join('');
+    const refunds = () => db.$queryRaw.mock.calls.filter(([parts]: [any]) => textOf(parts).includes('GREATEST("turnsUsed" - 1, 0)'));
+
+    it('refunds the daily turn when the provider chain is exhausted and does not store the apology as an answer', async () => {
+      arrange(async () => ({ text: "I'm not confident enough in an answer right now", isUncertain: true, providerUsed: 'none', modelUsed: 'none' }));
+      await expect(service.createTurn('user-a', 'session-a', { message: 'Explain limits', idempotencyKey: 'turn-key-123456' })).rejects.toThrow();
+      expect(refunds()).toHaveLength(1);
+      expect(refunds()[0][2]).toEqual(new Date(Date.UTC(2026, 10, 14)));
+      expect(db.classroomTurn.create).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ role: 'TUTOR' }) }));
+    });
+
+    it('does not refund twice when the request was already moved out of PROCESSING', async () => {
+      arrange(async () => { throw new Error('provider down'); });
+      db.classroomTurnRequest.updateMany.mockResolvedValue({ count: 0 });
+      await expect(service.createTurn('user-a', 'session-a', { message: 'Explain limits', idempotencyKey: 'turn-key-123456' })).rejects.toThrow();
+      expect(refunds()).toHaveLength(0);
+    });
+  });
+
+  it('rejects new turns, uploads and links on an archived lesson', async () => {
+    db.user.findUnique.mockResolvedValue({ isPremium: false, premiumUntil: null });
+    db.classroomSession.findFirst.mockResolvedValue({ id: 'session-a', userId: 'user-a', status: 'ARCHIVED', activeTurnRequestId: null, turnLeaseExpiresAt: null, turnLeaseVersion: 0, nextTurnSequence: 0 });
+    db.classroomTurnRequest.findUnique.mockResolvedValue(null);
+    await expect(service.createTurn('user-a', 'session-a', { message: 'Explain limits', idempotencyKey: 'turn-key-123456' })).rejects.toBeInstanceOf(ConflictException);
+    await expect(service.uploadDocument('user-a', 'session-a', { mimetype: 'text/plain', size: 10, originalname: 'a.txt', buffer: Buffer.alloc(10) } as any)).rejects.toBeInstanceOf(ConflictException);
+    await expect(service.linkMaterial('user-a', 'session-a', { materialId: '00000000-0000-4000-8000-000000000000' })).rejects.toBeInstanceOf(ConflictException);
+    expect(ai.generate).not.toHaveBeenCalled();
+  });
+
+  it('keeps long documents beyond the old 12,000 character cap and flags the cut when it still applies', async () => {
+    db.classroomDocument.findUnique.mockResolvedValue({ id: 'doc-a', status: 'READY' });
+    const long = 'Integration by substitution lets you change variables. '.repeat(1000); // ~55,000 chars
+    const saved = await (service as any).saveExtracted('doc-a', long, 'PDF_TEXT_LAYER');
+    expect(db.classroomDocument.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ extractedChars: long.trim().length }) }));
+    expect(saved).not.toHaveProperty('truncated');
+    const cut = await (service as any).saveExtracted('doc-a', 'x'.repeat(150_000), 'TEXT');
+    expect(cut).toMatchObject({ truncated: true });
   });
 
   it('uses configured free or active-premium quota values without defaults', async () => {
