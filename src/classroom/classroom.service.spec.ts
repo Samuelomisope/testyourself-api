@@ -171,6 +171,76 @@ describe('ClassroomService', () => {
     expect(ai.generate.mock.calls[0][0]).toContain('excerpt text');
   });
 
+  describe('tutor context', () => {
+    const build = (...args: any[]) => (service as any).buildTutorPrompt(...args);
+
+    it('adds the earlier conversation so follow-ups are answered in context', () => {
+      const prompt = build('continue', [], [{ role: 'STUDENT', content: 'Explain   limits' }, { role: 'TUTOR', content: 'A limit is the value a function approaches.' }]);
+      expect(prompt).toContain('Earlier in this lesson');
+      expect(prompt.indexOf('Student: Explain limits')).toBeGreaterThan(-1);
+      expect(prompt.indexOf('Student: Explain limits')).toBeLessThan(prompt.indexOf('Tutor: A limit is'));
+      expect(prompt.indexOf('Tutor: A limit is')).toBeLessThan(prompt.indexOf('Student question:\ncontinue'));
+    });
+
+    it('trims long history turns and omits the section when there is none', () => {
+      expect(build('next', [], [{ role: 'TUTOR', content: 'y'.repeat(5000) }])).not.toContain('y'.repeat(601));
+      expect(build('next', [])).not.toContain('Earlier in this lesson');
+    });
+
+    it('names documents that are not readable and tells the tutor never to claim it read them', () => {
+      const prompt = build('Summarise my notes', [], [], [{ originalName: 'week1.pdf', status: 'PROCESSING' }, { originalName: 'bad"\nname.pdf', status: 'FAILED' }]);
+      expect(prompt).toContain('"week1.pdf" (still processing)');
+      expect(prompt).toContain('(processing failed)');
+      expect(prompt).toContain('Never claim to have read');
+      expect(prompt).toContain('No attached document could be read yet');
+      expect(prompt).not.toContain('bad"\nname'); // names are JSON-escaped, so a file name cannot inject a new line
+    });
+
+    it('keeps the normal wording when nothing is attached, and keeps excerpts when some are readable', () => {
+      expect(build('q', [])).toContain('No classroom documents were attached');
+      const prompt = build('q', [{ title: 'notes.pdf', text: 'excerpt text' }], [], [{ originalName: 'week2.pdf', status: 'PROCESSING' }]);
+      expect(prompt).toContain('excerpt text');
+      expect(prompt).not.toContain('No attached document could be read yet');
+    });
+
+    it('loads only completed earlier exchanges, oldest first', async () => {
+      db.classroomTurn.findMany.mockResolvedValue([{ role: 'TUTOR', content: 'b' }, { role: 'STUDENT', content: 'a' }]);
+      const rows = await (service as any).recentHistory('session-a', 5);
+      expect(rows.map((r: any) => r.content)).toEqual(['a', 'b']);
+      expect(db.classroomTurn.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: { sessionId: 'session-a', sequence: { lt: 5 }, request: { status: 'COMPLETED' } }, orderBy: { sequence: 'desc' }, take: 6,
+      }));
+    });
+
+    it('looks up only processing or failed documents in this session', async () => {
+      db.classroomDocument.findMany.mockResolvedValue([]);
+      await (service as any).unavailableDocuments('session-a', []);
+      expect(db.classroomDocument.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { sessionId: 'session-a', status: { in: ['PROCESSING', 'FAILED'] } } }));
+      await (service as any).unavailableDocuments('session-a', ['doc-a']);
+      expect(db.classroomDocument.findMany.mock.calls[1][0].where).toMatchObject({ id: { in: ['doc-a'] } });
+    });
+
+    it('sends earlier turns to the model when answering a new turn', async () => {
+      let requestId = '';
+      const session = { id: 'session-a', userId: 'user-a', status: 'ACTIVE', activeTurnRequestId: null, turnLeaseExpiresAt: null, turnLeaseVersion: 0, nextTurnSequence: 0 };
+      db.user.findUnique.mockResolvedValue({ isPremium: false, premiumUntil: null });
+      db.classroomSession.findFirst.mockImplementation(async () => (requestId ? { ...session, activeTurnRequestId: requestId, turnLeaseVersion: 1, nextTurnSequence: 1 } : session));
+      db.classroomTurnRequest.findUnique.mockResolvedValue(null);
+      db.classroomTurnRequest.create.mockImplementation(async ({ data }: any) => { requestId = data.id; return { ...data, createdAt: new Date() }; });
+      db.classroomDocument.findMany.mockResolvedValue([]);
+      db.classroomTurnRequest.findFirst.mockResolvedValue({ id: 'r', status: 'COMPLETED', turns: [] });
+      db.classroomTurn.findMany.mockResolvedValue([{ role: 'TUTOR', content: 'Earlier tutor answer' }, { role: 'STUDENT', content: 'Earlier student question' }]);
+      db.$queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'usage' }]).mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+      ai.generate.mockResolvedValue({ text: JSON.stringify({ summary: 's', steps: [], examples: [] }), isUncertain: false, providerUsed: 'claude', modelUsed: 'm' });
+
+      await service.createTurn('user-a', 'session-a', { message: 'continue', idempotencyKey: 'turn-key-123456' });
+      const prompt: string = ai.generate.mock.calls[0][0];
+      expect(prompt.indexOf('Student: Earlier student question')).toBeGreaterThan(-1);
+      expect(prompt.indexOf('Student: Earlier student question')).toBeLessThan(prompt.indexOf('Tutor: Earlier tutor answer'));
+      expect(db.classroomTurn.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ sequence: { lt: 1 } }) }));
+    });
+  });
+
   describe('failed tutor responses', () => {
     const arrange = (generate: () => Promise<any>) => {
       const createdAt = new Date('2026-11-14T10:00:00Z');
