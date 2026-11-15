@@ -894,6 +894,7 @@ model ClassroomDocument {
   status            ClassroomDocumentStatus  @default(PROCESSING)
   extractionMethod  String?
   extractedChars    Int?
+  totalChars        Int?
   failureCode       String?
   deleteAttempts    Int                      @default(0)
   createdAt         DateTime                 @default(now())
@@ -914,6 +915,7 @@ model ClassroomDocumentChunk {
   chunkIndex     Int
   pageStart      Int?
   pageEnd        Int?
+  heading        String?
   text           String   @db.Text
   document       ClassroomDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
