@@ -32,6 +32,43 @@ export class UploadService {
     return `${process.env.R2_ENDPOINT}/${process.env.R2_BUCKET_NAME}/${key}`;
   }
 
+  /** Classroom-only upload path that lets the caller persist the private key before writing to R2. */
+  createOwnedUploadKey(fileName: string, folder: string, ownerId: string): string {
+    if (!ownerId || !/^[a-z0-9_-]{1,80}$/i.test(folder)) throw new BadRequestException('Invalid upload owner or folder.');
+    const ext = fileName.split('.').pop();
+    const safeExt = ext && /^[a-z0-9]{1,10}$/i.test(ext) ? ext.toLowerCase() : 'bin';
+    return `users/${ownerId}/${folder}/${randomUUID()}.${safeExt}`;
+  }
+
+  async uploadToOwnedKey(file: Express.Multer.File, key: string, folder: string, ownerId: string): Promise<void> {
+    this.assertOwnedKey(key, folder, ownerId);
+    await this.s3.send(new PutObjectCommand({
+      Bucket: process.env.R2_BUCKET_NAME,
+      Key: key,
+      Body: file.buffer,
+      ContentType: file.mimetype,
+    }));
+  }
+
+  async deleteOwnedKey(key: string, folder: string, ownerId: string): Promise<void> {
+    this.assertOwnedKey(key, folder, ownerId);
+    // Deliberately propagates storage failures so callers can retain a retryable tombstone.
+    await this.s3.send(new DeleteObjectCommand({ Bucket: process.env.R2_BUCKET_NAME, Key: key }));
+  }
+
+  async downloadOwnedKey(key: string, folder: string, ownerId: string): Promise<Buffer> {
+    this.assertOwnedKey(key, folder, ownerId);
+    const response = await this.s3.send(new GetObjectCommand({ Bucket: process.env.R2_BUCKET_NAME, Key: key }));
+    return this.streamToBuffer(response.Body as NodeJS.ReadableStream);
+  }
+
+  private assertOwnedKey(key: string, folder: string, ownerId: string) {
+    const prefix = `users/${ownerId}/${folder}/`;
+    if (!ownerId || !/^[a-z0-9_-]{1,80}$/i.test(folder) || !key.startsWith(prefix) || key.includes('..')) {
+      throw new BadRequestException('Invalid private upload reference.');
+    }
+  }
+
   extractKey(storedUrl: string): string {
   // Strip query string first — old expired signed URLs still have the
   // correct key in the path, just with stale ?X-Amz-... params attached.
@@ -58,7 +95,27 @@ export class UploadService {
 }
 
   isOwnedProfilePhoto(storedUrl: string, ownerId: string): boolean {
-    return this.isOwnedUserUpload(storedUrl, ownerId, 'profile-pictures');
+    return this.isOwnedUserUpload(storedUrl, ownerId, 'profile-pictures') ||
+      this.isOwnedUserUpload(storedUrl, ownerId, 'profile');
+  }
+
+  /**
+   * Older profile photos used a shared `profile/<filename>` key instead of
+   * the owner-scoped path. Permit signing only image files in that exact
+   * legacy prefix so old avatars continue to render without exposing other
+   * objects in the bucket.
+   */
+  isLegacyProfilePhoto(storedUrl: string): boolean {
+    try {
+      const endpoint = new URL(process.env.R2_ENDPOINT!);
+      const candidate = new URL(storedUrl);
+      const bucketPrefix = `${endpoint.pathname.replace(/\/$/, '')}/${process.env.R2_BUCKET_NAME}/`;
+      if (candidate.origin !== endpoint.origin || !candidate.pathname.startsWith(bucketPrefix)) return false;
+      const key = decodeURIComponent(candidate.pathname.slice(bucketPrefix.length));
+      return /^profile\/[^/]{1,180}\.(?:avif|gif|jpe?g|png|svg|webp)$/i.test(key);
+    } catch {
+      return false;
+    }
   }
 
   isOwnedUserUpload(storedUrl: string, ownerId: string, folder: string): boolean {

@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { MarketplaceService } from './marketplace.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { UploadService } from '../upload/upload.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 describe('MarketplaceService', () => {
   let service: MarketplaceService;
@@ -12,6 +13,7 @@ describe('MarketplaceService', () => {
         MarketplaceService,
         { provide: PrismaService, useValue: {} },
         { provide: UploadService, useValue: {} },
+        { provide: NotificationsService, useValue: {} }
       ],
     }).compile();
 
