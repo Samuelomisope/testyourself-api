@@ -67,6 +67,10 @@ export class ClassroomController {
   @Post('sessions/:sessionId/materials')
   linkMaterial(@CurrentUser() user: AuthUser, @Param('sessionId', ParseUUIDPipe) sid: string, @Body() dto: LinkClassroomMaterialDto) { return this.classroom.linkMaterial(user.sub, sid, dto); }
 
+  @Post('sessions/:sessionId/plan')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  generatePlan(@CurrentUser() user: AuthUser, @Param('sessionId', ParseUUIDPipe) sid: string) { return this.classroom.generatePlan(user.sub, sid); }
+
   @Post('sessions/:sessionId/turns')
   @Throttle({ default: { limit: 12, ttl: 60_000 } })
   createTurn(@CurrentUser() user: AuthUser, @Param('sessionId', ParseUUIDPipe) sid: string, @Body() dto: CreateClassroomTurnDto) { return this.classroom.createTurn(user.sub, sid, dto); }

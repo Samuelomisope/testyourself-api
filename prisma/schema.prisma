@@ -838,6 +838,17 @@ enum ClassroomTurnRole {
   TUTOR
 }
 
+enum ClassroomMode {
+  CLASSROOM
+  CONVERSATION
+}
+
+enum ClassroomSourceMode {
+  GENERAL
+  UPLOADED
+  LIBRARY
+}
+
 model ClassroomSession {
   id                    String                  @id @default(uuid())
   userId                String
@@ -846,6 +857,12 @@ model ClassroomSession {
   topic                 String
   status                ClassroomSessionStatus  @default(ACTIVE)
   tutorVoice            String                  @default("FEMALE")
+  // Existing lessons keep the free-form tutor (CONVERSATION); new lessons opt in to CLASSROOM through the API.
+  mode                  ClassroomMode           @default(CONVERSATION)
+  sourceMode            ClassroomSourceMode     @default(GENERAL)
+  objectives            Json?
+  outline               Json?
+  currentStepIndex      Int                     @default(0)
   nextTurnSequence      Int                     @default(0)
   nextBoardSequence     Int                     @default(0)
   activeTurnRequestId   String?
