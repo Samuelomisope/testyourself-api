@@ -360,7 +360,7 @@ describe('ClassroomService', () => {
       expect(sql).toContain(`d."status" = 'READY'`);
       expect(sql).toContain('d."sessionId" =');
       expect(db.$queryRaw.mock.calls[0][0].values).toEqual(expect.arrayContaining(['session-a', 'user-a']));
-      expect(map).toEqual([{ title: 'a.pdf', chunkIndex: 0, text: 'Chapter one' }]);
+      expect(map).toEqual([{ title: 'a.pdf', chunkIndex: 0, heading: null, text: 'Chapter one' }]);
     });
 
     it('tells the tutor to teach from general knowledge and label the step as beyond the notes when nothing matched', () => {
@@ -724,6 +724,123 @@ describe('ClassroomService', () => {
     const cut = await (service as any).saveExtracted('doc-a', 'x'.repeat(150_000), 'TEXT');
     expect(cut).toMatchObject({ truncated: true });
   });
+
+  describe('document structure (C2)', () => {
+    const headed = `# Limits\n${'Limits are the idea of approaching a value. '.repeat(40)}\n\n# Derivatives\n${'A derivative measures the rate of change. '.repeat(40)}`;
+
+    it('stores the heading of each chunk and the length of the document before any cut', async () => {
+      db.classroomDocument.findUnique.mockResolvedValue({ id: 'doc-a', status: 'READY' });
+      await (service as any).saveExtracted('doc-a', headed, 'PDF_TEXT_LAYER');
+      const rows = db.classroomDocumentChunk.createMany.mock.calls[0][0].data;
+      expect([...new Set(rows.map((r: any) => r.heading))]).toEqual(['Limits', 'Derivatives']);
+      expect(rows.map((r: any) => r.chunkIndex)).toEqual(rows.map((_: any, i: number) => i));
+      expect(db.classroomDocument.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ extractedChars: headed.trim().length, totalChars: headed.trim().length }) }));
+    });
+
+    it('stores no heading for a document without any', async () => {
+      db.classroomDocument.findUnique.mockResolvedValue({ id: 'doc-a', status: 'READY' });
+      await (service as any).saveExtracted('doc-a', 'plain lecture words and nothing else. '.repeat(10), 'TEXT');
+      expect(db.classroomDocumentChunk.createMany.mock.calls[0][0].data.every((r: any) => r.heading === null)).toBe(true);
+    });
+
+    it('records the full length and flags the cut when a limit applies', async () => {
+      db.classroomDocument.findUnique.mockResolvedValue({ id: 'doc-a', status: 'READY' });
+      const saved = await (service as any).saveExtracted('doc-a', 'x '.repeat(25_000), 'TEXT', 20_000);
+      expect(db.classroomDocument.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ extractedChars: 20_000, totalChars: 49_999 }) }));
+      expect(saved).toMatchObject({ truncated: true });
+    });
+
+    it('reports a cut from the real lengths, and falls back to the old cap for documents saved before totalChars existed', async () => {
+      db.classroomSession.findFirst.mockResolvedValue({ id: 'session-a', userId: 'user-a', status: 'ACTIVE' });
+      db.classroomDocument.findMany.mockResolvedValue([
+        { id: 'exact', extractedChars: 100_000, totalChars: 100_000 },
+        { id: 'cut', extractedChars: 100_000, totalChars: 340_000 },
+        { id: 'legacy-cut', extractedChars: 100_000, totalChars: null },
+        { id: 'legacy-short', extractedChars: 5_000, totalChars: null },
+        { id: 'pending', extractedChars: null, totalChars: null },
+      ]);
+      const docs = await service.listDocuments('user-a', 'session-a');
+      expect(docs.map((d: any) => [d.id, d.truncated])).toEqual([['exact', false], ['cut', true], ['legacy-cut', true], ['legacy-short', false], ['pending', false]]);
+      expect(docs[1]).toMatchObject({ totalChars: 340_000 });
+      expect(db.classroomDocument.findMany.mock.calls[0][0].select).toMatchObject({ totalChars: true });
+    });
+
+    describe('premium text limit', () => {
+      const limitFor = async (user: any) => { db.user.findUnique.mockResolvedValue(user); return (service as any).textLimit('user-a'); };
+      afterEach(() => { delete process.env.CLASSROOM_PREMIUM_MAX_EXTRACTED_CHARS; });
+
+      it('keeps the normal cap for free users, even when a premium cap is configured', async () => {
+        process.env.CLASSROOM_PREMIUM_MAX_EXTRACTED_CHARS = '300000';
+        expect(await limitFor({ isPremium: false, premiumUntil: null })).toBe(100_000);
+      });
+
+      it('gives active premium users the configured cap', async () => {
+        process.env.CLASSROOM_PREMIUM_MAX_EXTRACTED_CHARS = '300000';
+        expect(await limitFor({ isPremium: true, premiumUntil: null })).toBe(300_000);
+        expect(await limitFor({ isPremium: true, premiumUntil: new Date(Date.now() + 86_400_000) })).toBe(300_000);
+      });
+
+      it('treats an expired premium plan as free', async () => {
+        process.env.CLASSROOM_PREMIUM_MAX_EXTRACTED_CHARS = '300000';
+        expect(await limitFor({ isPremium: true, premiumUntil: new Date(Date.now() - 1000) })).toBe(100_000);
+      });
+
+      it('falls back to the normal cap when nothing valid is configured', async () => {
+        expect(await limitFor({ isPremium: true, premiumUntil: null })).toBe(100_000);
+        process.env.CLASSROOM_PREMIUM_MAX_EXTRACTED_CHARS = '500';
+        expect(await limitFor({ isPremium: true, premiumUntil: null })).toBe(100_000);
+        process.env.CLASSROOM_PREMIUM_MAX_EXTRACTED_CHARS = 'lots';
+        expect(await limitFor({ isPremium: true, premiumUntil: null })).toBe(100_000);
+      });
+
+      it('does not fail when the user record is missing', async () => {
+        expect(await limitFor(null)).toBe(100_000);
+      });
+    });
+
+    it('matches search terms against section headings as well as the text', async () => {
+      db.$queryRaw.mockResolvedValueOnce([{ documentId: 'a', chunkIndex: 0, text: 'body', title: 'a.pdf', heading: 'Limit laws' }]);
+      const found = await (service as any).searchChunks('user-a', 'session-a', [], 'limit laws');
+      const sql = db.$queryRaw.mock.calls[0][0].strings.join('');
+      expect(sql).toContain(`coalesce(c."heading", '')`);
+      expect(sql).toContain('c."heading"');
+      expect(found.chunks[0].heading).toBe('Limit laws');
+    });
+
+    it('maps a document with real headings by its sections, in order, like a contents page', () => {
+      const row = (chunkIndex: number, heading: string | null) => ({ documentId: 'a', title: 'a.pdf', chunkIndex, heading, text: `text ${chunkIndex}` });
+      const rows = [row(0, 'Limits'), row(1, 'Limits'), row(2, 'Limits'), row(3, 'Continuity'), row(4, 'Continuity'), row(5, 'Derivatives'), row(6, 'Derivatives'), row(7, 'Integrals')];
+      const map = (service as any).sampleMap(rows);
+      expect(map.map((m: any) => m.heading)).toEqual(['Limits', 'Continuity', 'Derivatives', 'Integrals']);
+      expect(map.map((m: any) => m.chunkIndex)).toEqual([0, 3, 5, 7]);
+    });
+
+    it('maps by samples when a document has fewer than three distinct headings', () => {
+      const rows = Array.from({ length: 10 }, (_, i) => ({ documentId: 'a', title: 'a.pdf', chunkIndex: i, heading: i < 5 ? 'Only' : null, text: `text ${i}` }));
+      const map = (service as any).sampleMap(rows);
+      expect(map).toHaveLength(10);
+    });
+
+    it('shows section names in the plan map and in the excerpts the tutor sees', () => {
+      const plan = (service as any).buildPlanPrompt('Limits', [{ title: 'n.pdf', text: 'epsilon', heading: 'Limit laws' }], [{ title: 'n.pdf', chunkIndex: 3, heading: 'Limit laws', text: 'sum rule' }, { title: 'n.pdf', chunkIndex: 9, heading: null, text: 'misc' }]);
+      expect(plan).toContain('[1] (n.pdf, Limit laws) epsilon');
+      expect(plan).toContain('- (n.pdf, Limit laws) sum rule');
+      expect(plan).toContain('- (n.pdf, part 10) misc');
+      const tutor = (service as any).buildTutorPrompt('q', [{ title: 'n.pdf', text: 'epsilon', heading: 'Limit laws' }, { title: 'n.pdf', text: 'plain' }]);
+      expect(tutor).toContain('[1] (n.pdf, Limit laws) epsilon');
+      expect(tutor).toContain('[2] (n.pdf) plain');
+    });
+
+    it('lets a cited step carry the section it came from', () => {
+      const chunks = [{ documentId: 'doc-a', title: 'notes.pdf', chunkIndex: 4, heading: 'Limit laws' }, { documentId: 'doc-a', title: 'notes.pdf', chunkIndex: 5 }];
+      const lesson = (service as any).parseLesson(JSON.stringify({ summary: 's', examples: [], steps: [{ title: 'a', explanation: 'e', origin: 'SOURCE', sourceNumbers: [1, 2] }] }), chunks);
+      expect(lesson.steps[0].sources).toEqual([
+        { documentId: 'doc-a', title: 'notes.pdf', heading: 'Limit laws', chunkIndex: 4 },
+        { documentId: 'doc-a', title: 'notes.pdf', chunkIndex: 5 },
+      ]);
+    });
+  });
+
 
   it('uses configured free or active-premium quota values without defaults', async () => {
     db.user.findUnique.mockResolvedValue({ isPremium: false, premiumUntil: null });
