@@ -266,6 +266,118 @@ describe('ClassroomService', () => {
     });
   });
 
+  describe('retrieval for taught steps (C1)', () => {
+    const row = (documentId: string, chunkIndex: number, text = 'x') => ({ documentId, chunkIndex, text, title: `${documentId}.pdf` });
+    const plan = { objectives: ['Define a limit', 'Use limit laws'], outline: [{ id: 'step-1', title: 'Intuition', summary: 'Approaching a value.' }, { id: 'step-2', title: 'Formal definition', summary: 'Epsilon-delta.' }], stepIndex: 1 };
+
+    it('searches by the current step while a lesson plan runs, because "continue" says nothing about the content', () => {
+      const query = (phase: string, message = 'Continue to the next step.') => (service as any).retrievalQuery(message, 'Limits', { ...plan, phase });
+      expect(query('ADVANCE')).toBe('Formal definition Limits Epsilon-delta.');
+      expect(query('OPEN')).toContain('Formal definition');
+      expect(query('ADVANCE')).not.toContain('Continue');
+      expect(query('FINISH')).toBe('Limits Define a limit Use limit laws');
+    });
+
+    it('adds the student\'s own words to the step title when they ask a question', () => {
+      expect((service as any).retrievalQuery('why does delta depend on epsilon', 'Limits', { ...plan, phase: 'ASK' })).toBe('Formal definition why does delta depend on epsilon');
+    });
+
+    it('uses the message alone when the lesson has no plan', () => {
+      expect((service as any).retrievalQuery('Explain energy transfer', 'Energy', null)).toBe('Explain energy transfer');
+    });
+
+    it('takes the best excerpt of every document before filling up with the next best overall', () => {
+      const ranked = [row('a', 0), row('a', 1), row('a', 2), row('a', 3), row('a', 4), row('b', 7), row('c', 2)];
+      const picked = (service as any).spreadAcrossDocuments(ranked, 5);
+      expect(picked).toHaveLength(5);
+      expect(picked.map((r: any) => r.documentId)).toEqual(['a', 'b', 'c', 'a', 'a']);
+      expect(picked.some((r: any) => r.documentId === 'b' && r.chunkIndex === 7)).toBe(true);
+    });
+
+    it('returns matching excerpts spread across the documents', async () => {
+      db.$queryRaw.mockResolvedValueOnce([row('a', 0), row('a', 1), row('a', 2), row('a', 3), row('a', 4), row('b', 9)]);
+      const found = await (service as any).searchChunks('user-a', 'session-a', [], 'epsilon delta definition');
+      expect(found.notCovered).toBe(false);
+      expect(found.chunks.some((r: any) => r.documentId === 'b')).toBe(true);
+      expect(found.chunks.length).toBeLessThanOrEqual(5);
+    });
+
+    it('limits how many candidates one document can contribute, so a long file cannot crowd out the rest', async () => {
+      db.$queryRaw.mockResolvedValueOnce([row('a', 0)]);
+      await (service as any).searchChunks('user-a', 'session-a', [], 'epsilon delta definition');
+      const call = db.$queryRaw.mock.calls[0][0];
+      const sql = call.strings.join('');
+      expect(sql).toContain('row_number() OVER (PARTITION BY c."documentId"');
+      expect(sql).toContain('WHERE "position" <=');
+      expect(call.values).toContain(3);
+    });
+
+    it('says the notes do not cover it, and withholds unrelated excerpts, when real search terms match nothing', async () => {
+      db.$queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([row('a', 0, 'Introduction to the course')]);
+      const found = await (service as any).searchChunks('user-a', 'session-a', [], 'quantum entanglement');
+      expect(found).toEqual({ chunks: [], notCovered: true });
+    });
+
+    it('still hands over the opening of the documents for a question with no searchable words', async () => {
+      db.$queryRaw.mockResolvedValueOnce([row('a', 0, 'Introduction to the course')]);
+      const found = await (service as any).searchChunks('user-a', 'session-a', [], 'what is this about');
+      expect(db.$queryRaw).toHaveBeenCalledTimes(1);
+      expect(found.notCovered).toBe(false);
+      expect(found.chunks).toHaveLength(1);
+    });
+
+    it('does not claim the notes miss a topic when there are no readable documents at all', async () => {
+      db.$queryRaw.mockResolvedValue([]);
+      expect(await (service as any).searchChunks('user-a', 'session-a', [], 'quantum entanglement')).toEqual({ chunks: [], notCovered: false });
+    });
+
+    it('samples each document evenly from start to end and ignores malformed rows', () => {
+      const rows = Array.from({ length: 40 }, (_, i) => row('a', i, `part ${i} ${'word '.repeat(80)}`));
+      const map = (service as any).sampleMap([...rows, { id: 'usage' }, null, { documentId: 'a', chunkIndex: 'x', text: 't', title: 'a.pdf' }]);
+      expect(map.length).toBeLessThanOrEqual(24);
+      expect(map.length).toBeGreaterThan(5);
+      expect(map[0].chunkIndex).toBe(0);
+      expect(map[map.length - 1].chunkIndex).toBeGreaterThan(30);
+      expect(map.every((m: any) => m.text.length <= 200)).toBe(true);
+      expect(map.map((m: any) => m.chunkIndex)).toEqual([...map.map((m: any) => m.chunkIndex)].sort((x: number, y: number) => x - y));
+    });
+
+    it('gives every document a share of the map', () => {
+      const rows = [...Array.from({ length: 30 }, (_, i) => row('a', i)), ...Array.from({ length: 30 }, (_, i) => row('b', i))];
+      const map = (service as any).sampleMap(rows);
+      for (const title of ['a.pdf', 'b.pdf']) expect(map.filter((m: any) => m.title === title).length).toBeGreaterThanOrEqual(3);
+    });
+
+    it('returns an empty map when nothing usable comes back', () => {
+      expect((service as any).sampleMap([])).toEqual([]);
+      expect((service as any).sampleMap([{ id: 'usage' }])).toEqual([]);
+    });
+
+    it('reads the map from ready documents of this classroom only', async () => {
+      db.$queryRaw.mockResolvedValueOnce([row('a', 0, 'Chapter one')]);
+      const map = await (service as any).documentMap('user-a', 'session-a');
+      const sql = db.$queryRaw.mock.calls[0][0].strings.join('');
+      expect(sql).toContain(`d."status" = 'READY'`);
+      expect(sql).toContain('d."sessionId" =');
+      expect(db.$queryRaw.mock.calls[0][0].values).toEqual(expect.arrayContaining(['session-a', 'user-a']));
+      expect(map).toEqual([{ title: 'a.pdf', chunkIndex: 0, text: 'Chapter one' }]);
+    });
+
+    it('tells the tutor to teach from general knowledge and label the step as beyond the notes when nothing matched', () => {
+      const prompt = (service as any).buildTutorPrompt('Continue to the next step.', [], [], [], { ...plan, phase: 'ADVANCE' }, true);
+      expect(prompt).toContain('no passage matches this step');
+      expect(prompt).toContain('"EXTRA"');
+      expect(prompt).toContain('not in their notes');
+      expect(prompt).not.toContain('Untrusted UniLib document excerpts');
+    });
+
+    it('keeps the normal wording when the notes did match', () => {
+      const prompt = (service as any).buildTutorPrompt('q', [{ title: 'n.pdf', text: 'epsilon' }], [], [], null, false);
+      expect(prompt).toContain('[1] (n.pdf) epsilon');
+      expect(prompt).not.toContain('no passage matches');
+    });
+  });
+
   describe('lesson plan', () => {
     const text = (arg: any) => (Array.isArray(arg) ? arg : arg.strings).join('');
     const refunds = () => db.$queryRaw.mock.calls.filter(([parts]: [any]) => text(parts).includes('GREATEST("turnsUsed" - 1, 0)'));
@@ -364,6 +476,32 @@ describe('ClassroomService', () => {
       expect(ai.generate.mock.calls[1][0]).toContain('[1] (notes.pdf) epsilon delta');
     });
 
+    it('plans from a map of the whole document as well as the passages that match the topic', async () => {
+      db.user.findUnique.mockResolvedValue({ isPremium: false, premiumUntil: null });
+      db.$queryRaw.mockResolvedValue([{ id: 'usage' }]);
+      aiReturns(planJson);
+      jest.spyOn(service as any, 'retrieveChunks').mockResolvedValue([]);
+      const map = jest.spyOn(service as any, 'documentMap').mockResolvedValue([{ title: 'notes.pdf', chunkIndex: 3, text: 'Chapter 4 limit laws' }]);
+      db.classroomSession.findFirst.mockResolvedValue(lessonRow({ sourceMode: 'UPLOADED' }));
+      await service.generatePlan('user-a', 'session-a');
+      expect(map).toHaveBeenCalledWith('user-a', 'session-a');
+      const prompt = ai.generate.mock.calls[0][0] as string;
+      expect(prompt).toContain('Document map');
+      expect(prompt).toContain('- (notes.pdf, part 4) Chapter 4 limit laws');
+      expect(prompt).toContain('in the order they cover it');
+    });
+
+    it('does not build a document map for a general-knowledge lesson', async () => {
+      db.user.findUnique.mockResolvedValue({ isPremium: false, premiumUntil: null });
+      db.$queryRaw.mockResolvedValue([{ id: 'usage' }]);
+      aiReturns(planJson);
+      const map = jest.spyOn(service as any, 'documentMap');
+      db.classroomSession.findFirst.mockResolvedValue(lessonRow({ sourceMode: 'GENERAL' }));
+      await service.generatePlan('user-a', 'session-a');
+      expect(map).not.toHaveBeenCalled();
+      expect(ai.generate.mock.calls[0][0]).not.toContain('Document map');
+    });
+
     it('refuses without calling the AI when the daily turn quota is used up', async () => {
       db.user.findUnique.mockResolvedValue({ isPremium: false, premiumUntil: null });
       db.classroomSession.findFirst.mockResolvedValue(lessonRow());
@@ -437,6 +575,34 @@ describe('ClassroomService', () => {
         expect(prompt).toContain('1. Intuition - Approaching a value.  <-- CURRENT STEP');
         expect(completion.currentStepIndex).toBe(0);
         expect(tutor.response).toMatchObject({ schemaVersion: 2, stepIndex: 0 });
+      });
+
+      it('searches by the step being taught, not by the words "continue to the next step"', async () => {
+        const search = jest.spyOn(service as any, 'searchChunks').mockResolvedValue({ chunks: [], notCovered: false });
+        await runTurn({ session: { currentStepIndex: 0 }, history: earlier, action: 'CONTINUE' });
+        const query = search.mock.calls[0][3] as string;
+        expect(query).toContain('Formal definition');
+        expect(query).toContain('Epsilon-delta.');
+        expect(query).not.toContain('next please');
+      });
+
+      it('searches by the current step plus the question when the student asks something', async () => {
+        const search = jest.spyOn(service as any, 'searchChunks').mockResolvedValue({ chunks: [], notCovered: false });
+        await runTurn({ session: { currentStepIndex: 1 }, history: earlier });
+        expect(search.mock.calls[0][3]).toBe('Formal definition next please');
+      });
+
+      it('searches the whole classroom by the message alone for lessons without a plan', async () => {
+        const search = jest.spyOn(service as any, 'searchChunks').mockResolvedValue({ chunks: [], notCovered: false });
+        await runTurn({ session: { mode: 'CONVERSATION', outline: null, objectives: null }, history: earlier });
+        expect(search.mock.calls[0][3]).toBe('next please');
+      });
+
+      it('tells the tutor when the notes do not cover the step being taught', async () => {
+        jest.spyOn(service as any, 'searchChunks').mockResolvedValue({ chunks: [], notCovered: true });
+        const { prompt } = await runTurn({ session: { currentStepIndex: 0 }, history: earlier, action: 'CONTINUE' });
+        expect(prompt).toContain('no passage matches this step');
+        expect(prompt).toContain('"EXTRA"');
       });
 
       it('answers a question in context without moving on', async () => {
