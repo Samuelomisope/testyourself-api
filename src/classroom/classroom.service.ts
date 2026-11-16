@@ -12,6 +12,7 @@ import { UploadService } from '../upload/upload.service';
 import { TextExtractionService } from '../classification/services/text-extraction.service';
 import { AIService } from '../provider/services/ai.service';
 import { chunkText } from './classroom-chunking';
+import { BoardBlock, buildBoardPrompt, composeEvents, EVENTS_VERSION, LessonEvent, parseBoardPass } from './classroom-events';
 import { CreateClassroomSessionDto, CreateClassroomTurnDto, LinkClassroomMaterialDto, UpdateClassroomSessionDto } from './classroom.dto';
 
 const FOLDER = 'classroom';
@@ -33,6 +34,8 @@ const HISTORY_TURNS = 6;
 const HISTORY_CHARS = 600;
 // AIService can take up to ~80s in the worst case (2 providers x 2 attempts x 20s timeout), so the lease must outlast that.
 const LEASE_MS = 120_000;
+// The board pass is optional, so it never gets long enough to put the turn lease at risk.
+const BOARD_PASS_MS = 20_000;
 const STOP_WORDS = new Set(['the', 'and', 'for', 'that', 'this', 'with', 'what', 'how', 'why', 'when', 'where', 'which', 'who', 'are', 'was', 'were', 'can', 'could', 'would', 'should', 'does', 'did', 'has', 'have', 'had', 'you', 'your', 'about', 'explain', 'please', 'step', 'tell', 'give', 'show', 'make', 'from', 'into', 'than', 'then', 'them', 'they', 'its', 'not', 'but', 'any', 'all']);
 const ALLOWED = new Set(['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain', 'image/jpeg', 'image/png', 'image/webp']);
 
@@ -49,7 +52,7 @@ type TurnPlan = StoredPlan & { stepIndex: number; phase: 'OPEN' | 'ADVANCE' | 'A
 type StepOrigin = 'SOURCE' | 'SIMPLIFIED' | 'EXTRA';
 type SourceRef = { documentId: string; title: string; chunkIndex: number; heading?: string | null };
 // schemaVersion 2 adds stepIndex and a per-step origin and sources. Version 1 turns already stored stay valid and are never rewritten.
-type Lesson = { schemaVersion: 2; summary: string; stepIndex: number | null; steps: Array<{ id: string; title: string; explanation: string; origin: StepOrigin; sources: SourceRef[] }>; examples: Array<{ title: string; prompt: string; solutionSteps: string[] }>; followUpQuestion: string | null; sources: SourceRef[] };
+type Lesson = { schemaVersion: 2; summary: string; stepIndex: number | null; steps: Array<{ id: string; title: string; explanation: string; origin: StepOrigin; sources: SourceRef[] }>; examples: Array<{ title: string; prompt: string; solutionSteps: string[] }>; followUpQuestion: string | null; sources: SourceRef[] ; eventsVersion?: typeof EVENTS_VERSION; events?: LessonEvent[] };
 
 @Injectable()
 export class ClassroomService {
@@ -303,6 +306,11 @@ export class ClassroomService {
       // AIService returns an apology string (providerUsed 'none') instead of throwing when every provider fails.
       if (generated.providerUsed === 'none') throw new BadGatewayException('The tutor is unavailable right now.');
       const lesson = this.parseLesson(generated.text, chunks, turnPlan?.stepIndex ?? null);
+      // Events are additive: schemaVersion stays 2, so clients that do not know about events keep working unchanged.
+      const stepTitle = turnPlan ? turnPlan.outline[turnPlan.stepIndex]?.title ?? null : null;
+      const eventContext = { phase: turnPlan?.phase ?? null, stepIndex: turnPlan?.stepIndex ?? null, stepTitle, topic: admission.topic };
+      lesson.events = composeEvents(lesson, eventContext, await this.boardPass(lesson, eventContext));
+      lesson.eventsVersion = EVENTS_VERSION;
       const tutorText = lesson.summary;
       await this.db.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT "id" FROM "ClassroomSession" WHERE "id" = ${sessionId} AND "userId" = ${userId} FOR UPDATE`;
@@ -544,6 +552,26 @@ export class ClassroomService {
       orderBy: { createdAt: 'asc' }, take: 10, select: { originalName: true, status: true },
     });
     return rows ?? [];
+  }
+
+  /**
+   * Optional whiteboard enrichment. It runs after the lesson text is already valid and never affects it: a disabled switch,
+   * a provider failure, a timeout or unusable output all just mean the board keeps its baseline blocks. It does not use a student turn.
+   */
+  private async boardPass(lesson: Lesson, ctx: { stepTitle: string | null; topic: string }): Promise<BoardBlock[]> {
+    if (process.env.CLASSROOM_BOARD_PASS === 'off' || (!lesson.steps.length && !lesson.examples.length)) return [];
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      const timeout = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), BOARD_PASS_MS); });
+      const result = await Promise.race([this.ai.generate(buildBoardPrompt(ctx.topic, ctx.stepTitle, lesson)), timeout]);
+      if (!result || result.providerUsed === 'none') return [];
+      return parseBoardPass(result.text);
+    } catch (error) {
+      this.logger.warn(`Classroom board pass failed: ${this.safeError(error)}`);
+      return [];
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   private buildTutorPrompt(question: string, chunks: Array<{ title: string; text: string; heading?: string | null }>, history: HistoryTurn[] = [], unavailable: UnavailableDocument[] = [], plan: TurnPlan | null = null, notCovered = false) {
