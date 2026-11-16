@@ -36,6 +36,8 @@ describe('ClassroomService', () => {
     process.env.CLASSROOM_PREMIUM_DAILY_UPLOAD_BYTES = '5000000';
     process.env.CLASSROOM_FREE_MAX_DOCUMENTS_PER_SESSION = '3';
     process.env.CLASSROOM_PREMIUM_MAX_DOCUMENTS_PER_SESSION = '10';
+    // The board pass is a second model call; the tests below that count provider calls run without it.
+    process.env.CLASSROOM_BOARD_PASS = 'off';
   });
 
   afterAll(() => { process.env = originalEnv; });
@@ -194,6 +196,73 @@ describe('ClassroomService', () => {
     expect(ai.generate).toHaveBeenCalledTimes(1);
     expect(ai.generate.mock.calls[0]).toHaveLength(1);
     expect(ai.generate.mock.calls[0][0]).toContain('excerpt text');
+  });
+
+  describe('whiteboard events', () => {
+    const lessonJson = JSON.stringify({ summary: 'Limits in brief.', steps: [{ title: 'Definition', explanation: 'A limit is a target value $$L$$.', origin: 'EXTRA', sourceNumbers: [] }], examples: [], followUpQuestion: 'What is L?', sourceNumbers: [] });
+    const boardJson = JSON.stringify({ blocks: [{ kind: 'TABLE', headers: ['x', 'f(x)'], rows: [['1', '2']] }, { kind: 'HTML', html: '<script>x</script>' }] });
+    const reply = (text: string) => ({ text, isUncertain: false, providerUsed: 'claude', modelUsed: 'm' });
+    const lesson = { schemaVersion: 2, summary: 's', stepIndex: null, steps: [{ id: 'step-1', title: 'T', explanation: 'E', origin: 'EXTRA', sources: [] }], examples: [], followUpQuestion: null, sources: [] };
+    const pass = (l: any = lesson) => (service as any).boardPass(l, { stepTitle: 'Definition', topic: 'Limits' });
+
+    it('is skipped by the kill switch and when there is nothing to draw', async () => {
+      expect(await pass()).toEqual([]);
+      process.env.CLASSROOM_BOARD_PASS = 'on';
+      expect(await pass({ ...lesson, steps: [], examples: [] })).toEqual([]);
+      expect(ai.generate).not.toHaveBeenCalled();
+    });
+
+    it('returns only validated blocks from the model', async () => {
+      process.env.CLASSROOM_BOARD_PASS = 'on';
+      ai.generate.mockResolvedValue(reply(boardJson));
+      expect(await pass()).toEqual([{ kind: 'TABLE', headers: ['x', 'f(x)'], rows: [['1', '2']] }]);
+      expect(ai.generate).toHaveBeenCalledTimes(1);
+      expect(ai.generate.mock.calls[0][0]).toContain('Limits');
+    });
+
+    it('keeps the lesson when the provider fails, reports no provider or returns junk', async () => {
+      process.env.CLASSROOM_BOARD_PASS = 'on';
+      ai.generate.mockRejectedValueOnce(new Error('boom'));
+      expect(await pass()).toEqual([]);
+      ai.generate.mockResolvedValueOnce({ ...reply('sorry'), providerUsed: 'none' });
+      expect(await pass()).toEqual([]);
+      ai.generate.mockResolvedValueOnce(reply('not json at all'));
+      expect(await pass()).toEqual([]);
+    });
+
+    it('gives up after the time limit instead of holding the turn', async () => {
+      process.env.CLASSROOM_BOARD_PASS = 'on';
+      jest.useFakeTimers();
+      try {
+        ai.generate.mockReturnValue(new Promise(() => undefined));
+        const result = pass();
+        await jest.advanceTimersByTimeAsync(20_000);
+        expect(await result).toEqual([]);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('stores additive events on the tutor turn and leaves schemaVersion at 2', async () => {
+      process.env.CLASSROOM_BOARD_PASS = 'on';
+      let requestId = '';
+      const session = { id: 'session-a', userId: 'user-a', status: 'ACTIVE', activeTurnRequestId: null, turnLeaseExpiresAt: null, turnLeaseVersion: 0, nextTurnSequence: 0 };
+      db.user.findUnique.mockResolvedValue({ isPremium: false, premiumUntil: null });
+      db.classroomSession.findFirst.mockImplementation(async () => (requestId ? { ...session, activeTurnRequestId: requestId, turnLeaseVersion: 1, nextTurnSequence: 1 } : session));
+      db.classroomTurnRequest.findUnique.mockResolvedValue(null);
+      db.classroomTurnRequest.create.mockImplementation(async ({ data }: any) => { requestId = data.id; return { ...data, createdAt: new Date() }; });
+      db.classroomDocument.findMany.mockResolvedValue([]);
+      db.classroomTurnRequest.findFirst.mockResolvedValue({ id: 'r', status: 'COMPLETED', turns: [] });
+      db.$queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'usage' }]).mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+      ai.generate.mockResolvedValueOnce(reply(lessonJson)).mockResolvedValueOnce(reply(boardJson));
+      await service.createTurn('user-a', 'session-a', { message: 'Explain limits', idempotencyKey: 'turn-key-123456' });
+      expect(ai.generate).toHaveBeenCalledTimes(2);
+      const tutor = db.classroomTurn.create.mock.calls.map(([arg]: any) => arg.data).find((data: any) => data.role === 'TUTOR');
+      expect(tutor.response.schemaVersion).toBe(2);
+      expect(tutor.response.eventsVersion).toBe(1);
+      expect(tutor.response.events.map((e: any) => e.type)).toEqual(expect.arrayContaining(['BOARD_PAGE', 'SAY', 'BOARD_BLOCK', 'CHECK']));
+      expect(tutor.response.events.filter((e: any) => e.type === 'BOARD_BLOCK').map((e: any) => e.block.kind)).toEqual(['FORMULA', 'TABLE']);
+    });
   });
 
   describe('tutor context', () => {
