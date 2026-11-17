@@ -2,6 +2,7 @@ import {
   baselineBlocks,
   buildBoardPrompt,
   composeEvents,
+  describeBoardBlock,
   EventLessonInput,
   parseBoardPass,
   sanitizeBlock,
@@ -413,5 +414,22 @@ describe('composeEvents', () => {
     expect(JSON.stringify(events).length).toBeLessThanOrEqual(30_000);
     expect(events.filter((e) => e.type === 'SAY')).toHaveLength(9);
     expect(events.map((e) => e.id)).toEqual(events.map((_, i) => `e${i + 1}`));
+  });
+});
+
+describe('describeBoardBlock', () => {
+  it('describes every block kind in plain text', () => {
+    expect(describeBoardBlock({ kind: 'TEXT', text: 'Hello   world' })).toBe('Hello world');
+    expect(describeBoardBlock({ kind: 'LIST', ordered: true, items: ['a', 'b'] })).toBe('1. a; 2. b');
+    expect(describeBoardBlock({ kind: 'LIST', ordered: false, items: ['a'] })).toBe('- a');
+    expect(describeBoardBlock({ kind: 'FORMULA', latex: 'x^2', caption: 'Square' })).toBe('Formula: x^2 (Square)');
+    expect(describeBoardBlock({ kind: 'TABLE', headers: ['x', 'y'], rows: [['1', '2'], ['3', '4']], caption: 'T' })).toBe('Table "T" with columns x, y. 1 | 2; 3 | 4');
+    expect(describeBoardBlock({ kind: 'DIAGRAM', alt: 'A flow', direction: 'LR', nodes: [{ id: 'a', label: 'Start' }, { id: 'b', label: 'End' }], edges: [{ from: 'a', to: 'b', label: 'then' }] })).toBe('Diagram: A flow Connections: Start -> End (then)');
+    expect(describeBoardBlock({ kind: 'CHART', alt: 'Rising', chart: 'line', labels: ['Mon', 'Tue'], series: [{ name: 'Hours', values: [1, 2] }] })).toBe('Chart: Rising Labels: Mon, Tue. Hours: 1, 2');
+  });
+
+  it('is capped and survives an unknown kind', () => {
+    expect(describeBoardBlock({ kind: 'TEXT', text: 'a'.repeat(5000) }).length).toBe(600);
+    expect(describeBoardBlock({ kind: 'NOPE' } as any)).toBe('');
   });
 });

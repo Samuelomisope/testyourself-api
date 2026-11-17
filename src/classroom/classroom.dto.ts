@@ -1,7 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize, IsArray, IsIn, IsInt, IsOptional, IsString, IsUUID,
-  Max, MaxLength, Min, MinLength, Matches,
+  Max, MaxLength, Min, MinLength, Matches, ValidateNested,
 } from 'class-validator';
 
 export class CreateClassroomSessionDto {
@@ -36,6 +36,12 @@ export class UpdateClassroomSessionDto {
   tutorVoice?: string;
 }
 
+/** Points at one block on the whiteboard. The server looks the block up itself; the client never sends its content. */
+export class BoardRefDto {
+  @IsUUID() turnId: string;
+  @IsString() @Matches(/^e\d{1,4}$/) eventId: string;
+}
+
 export class CreateClassroomTurnDto {
   @IsString() @MinLength(1) @MaxLength(4000)
   message: string;
@@ -49,6 +55,8 @@ export class CreateClassroomTurnDto {
   /** ASK (default) answers in context without moving on; CONTINUE moves to the next step of the lesson plan. */
   @IsOptional() @IsIn(['ASK', 'CONTINUE'])
   action?: 'ASK' | 'CONTINUE';
+  /** Optional: the whiteboard block this question is about. Only valid with ASK. */
+  @IsOptional() @ValidateNested() @Type(() => BoardRefDto) boardRef?: BoardRefDto;
 }
 
 export class LinkClassroomMaterialDto {

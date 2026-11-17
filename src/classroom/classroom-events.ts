@@ -361,3 +361,39 @@ export function composeEvents(
   }
   return events;
 }
+
+const DESCRIBE_MAX = 600;
+
+/**
+ * A short plain-text description of a board block, used to tell the tutor which part of the board the student is asking
+ * about. Always capped; the result is untrusted text and is labelled that way where it is put in a prompt.
+ */
+export function describeBoardBlock(block: BoardBlock): string {
+  let text: string;
+  switch (block.kind) {
+    case 'TEXT':
+      text = block.text;
+      break;
+    case 'LIST':
+      text = block.items.map((item, i) => `${block.ordered ? `${i + 1}.` : '-'} ${item}`).join('; ');
+      break;
+    case 'FORMULA':
+      text = `Formula: ${block.latex}${block.caption ? ` (${block.caption})` : ''}`;
+      break;
+    case 'TABLE':
+      text = `Table${block.caption ? ` "${block.caption}"` : ''} with columns ${block.headers.join(', ')}. ${block.rows.map((row) => row.join(' | ')).join('; ')}`;
+      break;
+    case 'DIAGRAM': {
+      const label = new Map(block.nodes.map((n) => [n.id, n.label]));
+      const links = block.edges.map((e) => `${label.get(e.from) ?? e.from} -> ${label.get(e.to) ?? e.to}${e.label ? ` (${e.label})` : ''}`).join('; ');
+      text = `Diagram: ${block.alt}${links ? ` Connections: ${links}` : ''}`;
+      break;
+    }
+    case 'CHART':
+      text = `Chart: ${block.alt} Labels: ${block.labels.join(', ')}. ${block.series.map((s) => `${s.name}: ${s.values.join(', ')}`).join('; ')}`;
+      break;
+    default:
+      text = '';
+  }
+  return text.replace(/\s+/g, ' ').trim().slice(0, DESCRIBE_MAX);
+}
