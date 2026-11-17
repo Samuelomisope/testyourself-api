@@ -246,6 +246,23 @@ describe('buildBoardPrompt', () => {
   });
 });
 
+describe('buildBoardPrompt without a topic', () => {
+  it('still builds a prompt when the topic or step title is missing', () => {
+    for (const topic of [undefined, null, 5, '']) {
+      expect(() =>
+        buildBoardPrompt(topic as unknown as string, null, lesson()),
+      ).not.toThrow();
+    }
+    expect(
+      buildBoardPrompt(
+        undefined as unknown as string,
+        undefined as unknown as string,
+        lesson(),
+      ),
+    ).toContain('Lesson text:');
+  });
+});
+
 describe('baselineBlocks', () => {
   it('builds key points, formulas and the worked example without a model', () => {
     const blocks = baselineBlocks(lesson());

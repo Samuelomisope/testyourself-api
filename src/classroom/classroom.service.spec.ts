@@ -246,7 +246,7 @@ describe('ClassroomService', () => {
     it('stores additive events on the tutor turn and leaves schemaVersion at 2', async () => {
       process.env.CLASSROOM_BOARD_PASS = 'on';
       let requestId = '';
-      const session = { id: 'session-a', userId: 'user-a', status: 'ACTIVE', activeTurnRequestId: null, turnLeaseExpiresAt: null, turnLeaseVersion: 0, nextTurnSequence: 0 };
+      const session = { id: 'session-a', userId: 'user-a', topic: 'Limits', status: 'ACTIVE', activeTurnRequestId: null, turnLeaseExpiresAt: null, turnLeaseVersion: 0, nextTurnSequence: 0 };
       db.user.findUnique.mockResolvedValue({ isPremium: false, premiumUntil: null });
       db.classroomSession.findFirst.mockImplementation(async () => (requestId ? { ...session, activeTurnRequestId: requestId, turnLeaseVersion: 1, nextTurnSequence: 1 } : session));
       db.classroomTurnRequest.findUnique.mockResolvedValue(null);
@@ -257,6 +257,7 @@ describe('ClassroomService', () => {
       ai.generate.mockResolvedValueOnce(reply(lessonJson)).mockResolvedValueOnce(reply(boardJson));
       await service.createTurn('user-a', 'session-a', { message: 'Explain limits', idempotencyKey: 'turn-key-123456' });
       expect(ai.generate).toHaveBeenCalledTimes(2);
+      expect(ai.generate.mock.calls[1][0]).toContain('"Limits"');
       const tutor = db.classroomTurn.create.mock.calls.map(([arg]: any) => arg.data).find((data: any) => data.role === 'TUTOR');
       expect(tutor.response.schemaVersion).toBe(2);
       expect(tutor.response.eventsVersion).toBe(1);
