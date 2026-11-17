@@ -285,7 +285,8 @@ export function baselineBlocks(lesson: EventLessonInput): BoardBlock[] {
   const titles = lesson.steps
     .map((step) => clean(step.title, 120))
     .filter(Boolean);
-  if (titles.length)
+  // One step's title is already the page title, so a list of one would only repeat it.
+  if (titles.length >= 2)
     blocks.push({ kind: 'LIST', ordered: false, items: titles.slice(0, 8) });
   blocks.push(
     ...extractFormulas([

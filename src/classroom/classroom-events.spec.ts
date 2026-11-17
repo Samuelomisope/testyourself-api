@@ -286,6 +286,15 @@ describe('baselineBlocks', () => {
     });
   });
 
+  it('leaves out the key-points list for a single step, whose title is already the page title', () => {
+    const one = lesson({ steps: [lesson().steps[0]], examples: [] });
+    expect(baselineBlocks(one).some((b) => b.kind === 'LIST')).toBe(false);
+    expect(baselineBlocks(one)).toContainEqual({
+      kind: 'FORMULA',
+      latex: '\\lim_{x\\to a} f(x)=L',
+    });
+  });
+
   it('is empty for a reply with no steps or examples', () => {
     expect(baselineBlocks(lesson({ steps: [], examples: [] }))).toEqual([]);
   });
