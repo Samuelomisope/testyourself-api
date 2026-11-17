@@ -246,6 +246,23 @@ describe('buildBoardPrompt', () => {
   });
 });
 
+describe('buildBoardPrompt without a topic', () => {
+  it('still builds a prompt when the topic or step title is missing', () => {
+    for (const topic of [undefined, null, 5, '']) {
+      expect(() =>
+        buildBoardPrompt(topic as unknown as string, null, lesson()),
+      ).not.toThrow();
+    }
+    expect(
+      buildBoardPrompt(
+        undefined as unknown as string,
+        undefined as unknown as string,
+        lesson(),
+      ),
+    ).toContain('Lesson text:');
+  });
+});
+
 describe('baselineBlocks', () => {
   it('builds key points, formulas and the worked example without a model', () => {
     const blocks = baselineBlocks(lesson());
@@ -266,6 +283,15 @@ describe('baselineBlocks', () => {
       kind: 'LIST',
       ordered: true,
       items: ['Substitute x = 3', 'Get 6'],
+    });
+  });
+
+  it('leaves out the key-points list for a single step, whose title is already the page title', () => {
+    const one = lesson({ steps: [lesson().steps[0]], examples: [] });
+    expect(baselineBlocks(one).some((b) => b.kind === 'LIST')).toBe(false);
+    expect(baselineBlocks(one)).toContainEqual({
+      kind: 'FORMULA',
+      latex: '\\lim_{x\\to a} f(x)=L',
     });
   });
 
