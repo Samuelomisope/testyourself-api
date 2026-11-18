@@ -16,7 +16,7 @@ describe('ClassroomService', () => {
   beforeEach(() => {
     db = {
       classroomSession: { findFirst: jest.fn(), create: jest.fn(), findMany: jest.fn(), update: jest.fn(), updateMany: jest.fn(), delete: jest.fn() },
-      classroomDocument: { findFirst: jest.fn(), findMany: jest.fn(), findUnique: jest.fn(), findMany: jest.fn(), count: jest.fn(), create: jest.fn(), update: jest.fn(), updateMany: jest.fn(), delete: jest.fn() },
+      classroomDocument: { findFirst: jest.fn(), findMany: jest.fn(), findUnique: jest.fn(), count: jest.fn(), create: jest.fn(), update: jest.fn(), updateMany: jest.fn(), delete: jest.fn() },
       classroomDocumentChunk: { findMany: jest.fn(), deleteMany: jest.fn(), createMany: jest.fn() },
       classroomTurnRequest: { findUnique: jest.fn(), findFirst: jest.fn(), create: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
       classroomTurn: { findFirst: jest.fn(), findMany: jest.fn(), create: jest.fn() },

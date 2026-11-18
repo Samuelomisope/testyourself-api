@@ -13,7 +13,7 @@ import { TextExtractionService } from '../classification/services/text-extractio
 import { AIService } from '../provider/services/ai.service';
 import { chunkText } from './classroom-chunking';
 import { BoardBlock, buildBoardPrompt, composeEvents, describeBoardBlock, sanitizeBlock, EVENTS_VERSION, LessonEvent, parseBoardPass } from './classroom-events';
-import { CreateClassroomSessionDto, CreateClassroomTurnDto, LinkClassroomMaterialDto, UpdateClassroomSessionDto } from './classroom.dto';
+import { CreateClassroomSessionDto, CreateClassroomTurnDto, LinkClassroomMaterialDto, ResumePositionDto, UpdateClassroomSessionDto } from './classroom.dto';
 
 const FOLDER = 'classroom';
 const MAX_FILE_BYTES = 15 * 1024 * 1024; // Reuses the existing /ai upload cap.
@@ -45,6 +45,15 @@ type UnavailableDocument = { originalName: string; status: ClassroomDocumentStat
 type ChunkRow = { documentId: string; title: string; chunkIndex: number; text: string; heading?: string | null };
 type MapEntry = { title: string; chunkIndex: number; heading: string | null; text: string };
 type PlanStep = { id: string; title: string; summary: string };
+/** The saved position as the client sees it, or null when none is saved or the stored value is not one we wrote. */
+export function presentResume(value: unknown, updatedAt: Date | null) {
+  const v = value as { v?: unknown; stepIndex?: unknown; eventId?: unknown; boardPage?: unknown } | null;
+  if (!v || typeof v !== 'object' || v.v !== 1 || !updatedAt || !Number.isInteger(v.stepIndex) || (v.stepIndex as number) < 0) return null;
+  const eventId = typeof v.eventId === 'string' && /^e\d{1,4}$/.test(v.eventId) ? v.eventId : null;
+  const boardPage = Number.isInteger(v.boardPage) && (v.boardPage as number) >= 0 && (v.boardPage as number) <= 99 ? (v.boardPage as number) : 0;
+  return { stepIndex: v.stepIndex as number, eventId, boardPage, updatedAt: updatedAt.toISOString() };
+}
+
 type StoredPlan = { objectives: string[]; outline: PlanStep[] };
 type GeneratedPlan = StoredPlan & { title: string | null };
 // OPEN: first turn of a lesson. ADVANCE: student asked to continue. ASK: question about the current step. FINISH: continue after the last step.
@@ -69,9 +78,20 @@ export class ClassroomService {
   }
 
   async getSession(userId: string, sessionId: string) {
-    const row = await this.db.classroomSession.findFirst({ where: { id: sessionId, userId }, select: this.sessionSelect() });
+    const row = await this.db.classroomSession.findFirst({ where: { id: sessionId, userId }, select: { ...this.sessionSelect(), resumePosition: true, resumeUpdatedAt: true } });
     if (!row) throw new NotFoundException('Classroom session not found.');
-    return row;
+    const { resumePosition, resumeUpdatedAt, ...session } = row;
+    return { ...session, resume: presentResume(resumePosition, resumeUpdatedAt) };
+  }
+
+  /** Saves where the learner is. The server sets the time, so the newest write wins whatever a device's clock says. */
+  async saveResume(userId: string, sessionId: string, dto: ResumePositionDto) {
+    const session = await this.db.classroomSession.findFirst({ where: { id: sessionId, userId, status: { notIn: [ClassroomSessionStatus.DELETING, ClassroomSessionStatus.DELETE_FAILED] } }, select: { outline: true } });
+    if (!session) throw new NotFoundException('Classroom session not found.');
+    const steps = Array.isArray(session.outline) ? session.outline.length : 0;
+    if (dto.stepIndex >= Math.max(steps, 1)) throw new BadRequestException('That step is not in this lesson.');
+    const position = { v: 1, stepIndex: dto.stepIndex, eventId: dto.eventId ?? null, boardPage: dto.boardPage ?? 0 };
+    await this.db.classroomSession.updateMany({ where: { id: sessionId, userId }, data: { resumePosition: position as Prisma.InputJsonValue, resumeUpdatedAt: new Date() } });
   }
 
   async updateSession(userId: string, sessionId: string, dto: UpdateClassroomSessionDto) {

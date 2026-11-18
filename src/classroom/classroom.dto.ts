@@ -79,3 +79,15 @@ export class ListClassroomTurnsQueryDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1)
   beforeSequence?: number;
 }
+
+/** Where the learner is in the lesson (Phase G). Saved so another device can offer "continue where you left off". */
+export class ResumePositionDto {
+  @IsInt() @Min(0) @Max(200)
+  stepIndex: number;
+
+  @IsOptional() @Matches(/^e\d{1,4}$/)
+  eventId?: string;
+
+  @IsOptional() @IsInt() @Min(0) @Max(99)
+  boardPage?: number;
+}
