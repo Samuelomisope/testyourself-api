@@ -95,6 +95,7 @@ model User {
   messagesSent        Message[]            @relation("SentMessages")
   reactions           MessageReaction[]
   notifications       Notification[]
+  featuresSeen        UserFeatureSeen[]
   reports             Report[]             @relation("ReportedBy")
   reportedItems       Report[]             @relation("ReportedUser")
   reviews             Review[]
@@ -971,4 +972,14 @@ model ClassroomUsage {
 
   @@unique([userId, usageDate])
   @@index([usageDate])
+}
+
+// Which announcements and tours a user has seen or dismissed, so a NEW marker or tour never repeats for them.
+model UserFeatureSeen {
+  userId  String
+  key     String
+  seenAt  DateTime @default(now())
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, key])
 }
