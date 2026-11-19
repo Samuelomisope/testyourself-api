@@ -25,6 +25,13 @@ export class ClassroomController {
   @Post('sessions')
   createSession(@CurrentUser() user: AuthUser, @Body() dto: CreateClassroomSessionDto) { return this.classroom.createSession(user.sub, dto); }
 
+  @Get('progress')
+  listProgress(@CurrentUser() user: AuthUser, @Query('limit') limit?: string, @Query('before') before?: string) {
+    const parsed = limit === undefined ? 30 : Number(limit);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 100) throw new BadRequestException('Limit must be between 1 and 100.');
+    return this.classroom.listProgress(user.sub, parsed, before);
+  }
+
   @Get('sessions')
   listSessions(@CurrentUser() user: AuthUser, @Query('limit') limit?: string) {
     const parsed = limit === undefined ? 30 : Number(limit);
