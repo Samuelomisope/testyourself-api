@@ -1,6 +1,6 @@
 import { Type } from 'class-transformer';
 import {
-  ArrayMaxSize, IsArray, IsIn, IsInt, IsOptional, IsString, IsUUID,
+  ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID,
   Max, MaxLength, Min, MinLength, Matches, ValidateNested,
 } from 'class-validator';
 
@@ -90,4 +90,23 @@ export class ResumePositionDto {
 
   @IsOptional() @IsInt() @Min(0) @Max(99)
   boardPage?: number;
+}
+
+export class AssessmentAnswerDto {
+  @Matches(/^q[1-4]$/)
+  questionId: string;
+
+  @IsOptional() @IsInt() @Min(0) @Max(4)
+  choice?: number;
+
+  @IsOptional() @IsBoolean()
+  truth?: boolean;
+
+  @IsOptional() @IsString() @MaxLength(300)
+  text?: string;
+}
+
+export class SubmitAssessmentAttemptDto {
+  @IsArray() @ArrayMaxSize(4) @ValidateNested({ each: true }) @Type(() => AssessmentAnswerDto)
+  answers: AssessmentAnswerDto[];
 }

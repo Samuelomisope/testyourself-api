@@ -13,7 +13,8 @@ import { TextExtractionService } from '../classification/services/text-extractio
 import { AIService } from '../provider/services/ai.service';
 import { chunkText } from './classroom-chunking';
 import { BoardBlock, buildBoardPrompt, composeEvents, describeBoardBlock, sanitizeBlock, EVENTS_VERSION, LessonEvent, parseBoardPass } from './classroom-events';
-import { CreateClassroomSessionDto, CreateClassroomTurnDto, LinkClassroomMaterialDto, ResumePositionDto, UpdateClassroomSessionDto } from './classroom.dto';
+import { CreateClassroomSessionDto, CreateClassroomTurnDto, LinkClassroomMaterialDto, ResumePositionDto, SubmitAssessmentAttemptDto, UpdateClassroomSessionDto } from './classroom.dto';
+import { buildAssessmentPrompt, buildMarkPrompt, markAttempt, parseAssessment, parseMark, publicQuestions, readStoredQuestions, revealResults, Response, StoredQuestion } from './classroom-assessment';
 
 const FOLDER = 'classroom';
 const MAX_FILE_BYTES = 15 * 1024 * 1024; // Reuses the existing /ai upload cap.
@@ -44,6 +45,7 @@ type HistoryTurn = { role: ClassroomTurnRole; content: string };
 type UnavailableDocument = { originalName: string; status: ClassroomDocumentStatus };
 type ChunkRow = { documentId: string; title: string; chunkIndex: number; text: string; heading?: string | null };
 type MapEntry = { title: string; chunkIndex: number; heading: string | null; text: string };
+const MAX_ATTEMPTS_PER_ASSESSMENT = 20;
 type PlanStep = { id: string; title: string; summary: string };
 /** The saved position as the client sees it, or null when none is saved or the stored value is not one we wrote. */
 export function presentResume(value: unknown, updatedAt: Date | null) {
@@ -92,6 +94,103 @@ export class ClassroomService {
     if (dto.stepIndex >= Math.max(steps, 1)) throw new BadRequestException('That step is not in this lesson.');
     const position = { v: 1, stepIndex: dto.stepIndex, eventId: dto.eventId ?? null, boardPage: dto.boardPage ?? 0 };
     await this.db.classroomSession.updateMany({ where: { id: sessionId, userId }, data: { resumePosition: position as Prisma.InputJsonValue, resumeUpdatedAt: new Date() } });
+  }
+
+  /**
+   * The check-in for one lesson step: created on first request (it costs one daily tutor turn, returned if generation
+   * fails), then reused. The client only ever receives the questions; answers stay on the server until an attempt.
+   */
+  async getAssessment(userId: string, sessionId: string, stepIndex: number) {
+    const session = await this.requireActiveSession(userId, sessionId);
+    if (session.mode !== ClassroomMode.CLASSROOM) throw new ConflictException('Check-ins are only used in classroom mode.');
+    const plan = this.readPlan(session);
+    if (!plan) throw new ConflictException('Prepare the lesson plan first.');
+    if (!Number.isInteger(stepIndex) || stepIndex < 0 || stepIndex >= plan.outline.length) throw new BadRequestException('That step is not in this lesson.');
+    if (stepIndex > session.currentStepIndex) throw new ConflictException('Finish the earlier steps before checking this one.');
+    const present = (row: { id: string; stepIndex: number; questions: Prisma.JsonValue }) => {
+      const questions = readStoredQuestions(row.questions);
+      return questions.length ? { id: row.id, stepIndex: row.stepIndex, questions: publicQuestions(questions) } : null;
+    };
+    const existing = await this.db.classroomAssessment.findUnique({ where: { sessionId_stepIndex: { sessionId, stepIndex } } });
+    const reused = existing ? present(existing) : null;
+    if (reused) return reused;
+
+    const quota = await this.quota(userId);
+    const admittedAt = new Date();
+    await this.db.$transaction(async (tx) => { await this.consumeTurn(tx, userId, quota.turns); });
+    try {
+      const step = plan.outline[stepIndex];
+      const useNotes = session.sourceMode !== ClassroomSourceMode.GENERAL;
+      const chunks = useNotes ? await this.retrieveChunks(userId, sessionId, [], `${session.topic} ${step.title}`) : [];
+      const generated = await this.ai.generate(buildAssessmentPrompt({ topic: session.topic, stepTitle: step.title, stepSummary: step.summary, objectives: plan.objectives, chunks }));
+      if (generated.providerUsed === 'none') throw new BadGatewayException('The tutor is unavailable right now.');
+      const questions = parseAssessment(this.extractJson(generated.text));
+      if (!questions) throw new BadGatewayException('The check-in did not match the expected format.');
+      try {
+        if (existing) await this.db.classroomAssessment.deleteMany({ where: { id: existing.id } }); // replace an unreadable stored set
+        const row = await this.db.classroomAssessment.create({ data: { sessionId, stepIndex, questions: questions as unknown as Prisma.InputJsonValue } });
+        return { id: row.id, stepIndex, questions: publicQuestions(questions) };
+      } catch (error) {
+        // Another request created this step's check-in first: keep theirs and return our turn.
+        const winner = await this.db.classroomAssessment.findUnique({ where: { sessionId_stepIndex: { sessionId, stepIndex } } });
+        const shown = winner ? present(winner) : null;
+        if (!shown) throw error;
+        await this.db.$transaction(async (tx) => { await this.refundTurn(tx, userId, admittedAt); });
+        return shown;
+      }
+    } catch (error) {
+      await this.db.$transaction(async (tx) => { await this.refundTurn(tx, userId, admittedAt); }).catch(() => undefined);
+      if (error instanceof ConflictException || error instanceof BadRequestException || error instanceof NotFoundException) throw error;
+      if (error instanceof BadGatewayException) throw error;
+      this.logger.warn(`Classroom check-in failed (${sessionId}): ${this.safeError(error)}`);
+      throw new BadGatewayException('The tutor could not prepare this check-in. Try again.');
+    }
+  }
+
+  /** Marks an attempt, stores it and reveals the answers. Typed answers are marked by the model and cost one turn (returned if marking fails). */
+  async submitAssessmentAttempt(userId: string, sessionId: string, assessmentId: string, dto: SubmitAssessmentAttemptDto) {
+    await this.requireActiveSession(userId, sessionId);
+    const assessment = await this.db.classroomAssessment.findFirst({ where: { id: assessmentId, sessionId } });
+    if (!assessment) throw new NotFoundException('Check-in not found.');
+    const questions = readStoredQuestions(assessment.questions);
+    if (!questions.length) throw new ConflictException('This check-in is unavailable. Request it again.');
+    const ids = new Set(questions.map((q) => q.id));
+    const responses: Response[] = dto.answers.map((a) => ({ questionId: a.questionId, choice: a.choice, truth: a.truth, text: a.text }));
+    if (new Set(responses.map((r) => r.questionId)).size !== responses.length || responses.some((r) => !ids.has(r.questionId))) throw new BadRequestException('Answers do not match this check-in.');
+    if ((await this.db.classroomAttempt.count({ where: { assessmentId, userId } })) >= MAX_ATTEMPTS_PER_ASSESSMENT) throw new ConflictException('You have used all attempts for this check-in.');
+
+    const short = questions.find((q): q is Extract<StoredQuestion, { kind: 'SHORT' }> => q.kind === 'SHORT');
+    const text = short ? (responses.find((r) => r.questionId === short.id)?.text ?? '').trim().slice(0, 300) : '';
+    let shortCorrect: boolean | null = null;
+    if (short && text) {
+      const quota = await this.quota(userId);
+      const admittedAt = new Date();
+      await this.db.$transaction(async (tx) => { await this.consumeTurn(tx, userId, quota.turns); });
+      try {
+        const generated = await this.ai.generate(buildMarkPrompt(short, text));
+        shortCorrect = generated.providerUsed === 'none' ? null : parseMark(this.extractJson(generated.text));
+      } catch (error) {
+        this.logger.warn(`Classroom marking failed (${sessionId}): ${this.safeError(error)}`);
+      }
+      if (shortCorrect === null) await this.db.$transaction(async (tx) => { await this.refundTurn(tx, userId, admittedAt); }).catch(() => undefined);
+    }
+    const marked = markAttempt(questions, responses, shortCorrect);
+    const attempt = await this.db.classroomAttempt.create({ data: { assessmentId, userId, answers: marked.answers as unknown as Prisma.InputJsonValue, score: marked.score, total: marked.total } });
+    return { id: attempt.id, assessmentId, stepIndex: assessment.stepIndex, score: marked.score, total: marked.total, results: revealResults(questions, marked.answers) };
+  }
+
+  /** Per step: how many attempts, the best and the latest score. Phase I uses this for progress. */
+  async listAssessments(userId: string, sessionId: string) {
+    await this.requireSession(userId, sessionId);
+    const rows = await this.db.classroomAttempt.findMany({ where: { userId, assessment: { sessionId } }, orderBy: { createdAt: 'asc' }, take: 500, select: { assessmentId: true, score: true, total: true, createdAt: true, assessment: { select: { stepIndex: true } } } });
+    const steps = new Map<number, { stepIndex: number; assessmentId: string; attempts: number; best: { score: number; total: number }; latest: { score: number; total: number; createdAt: Date } }>();
+    for (const r of rows) {
+      const step = r.assessment.stepIndex;
+      const current = steps.get(step);
+      const ratio = (x: { score: number; total: number }) => (x.total ? x.score / x.total : 0);
+      steps.set(step, { stepIndex: step, assessmentId: r.assessmentId, attempts: (current?.attempts ?? 0) + 1, best: !current || ratio(r) > ratio(current.best) ? { score: r.score, total: r.total } : current.best, latest: { score: r.score, total: r.total, createdAt: r.createdAt } });
+    }
+    return [...steps.values()].sort((a, b) => a.stepIndex - b.stepIndex);
   }
 
   async updateSession(userId: string, sessionId: string, dto: UpdateClassroomSessionDto) {
