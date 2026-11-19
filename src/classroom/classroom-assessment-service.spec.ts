@@ -165,4 +165,21 @@ describe('ClassroomService assessments', () => {
       expect(db.classroomAttempt.findMany).not.toHaveBeenCalled();
     });
   });
+
+  describe('updateSession', () => {
+    it('does not change a lesson that is being deleted', async () => {
+      db.classroomSession.update = jest.fn();
+      for (const status of ['DELETING', 'DELETE_FAILED']) {
+        db.classroomSession.findFirst.mockResolvedValue({ id: 's', status });
+        await expect(service.updateSession('u', 's', { status: 'ACTIVE' })).rejects.toBeInstanceOf(NotFoundException);
+      }
+      expect(db.classroomSession.update).not.toHaveBeenCalled();
+    });
+    it('still renames and archives a normal lesson', async () => {
+      db.classroomSession.update = jest.fn().mockResolvedValue({ id: 's' });
+      db.classroomSession.findFirst.mockResolvedValue({ id: 's', status: 'ACTIVE' });
+      await service.updateSession('u', 's', { title: ' New ', status: 'ARCHIVED' });
+      expect(db.classroomSession.update.mock.calls[0][0].data).toMatchObject({ title: 'New', status: 'ARCHIVED' });
+    });
+  });
 });
