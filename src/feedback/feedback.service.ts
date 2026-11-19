@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
+import { feedbackNotificationEmail } from '../email/email-templates';
 
 @Injectable()
 export class FeedbackService {
@@ -9,14 +10,8 @@ export class FeedbackService {
   async create(data: { userId?: string; rating: number; category: string; message: string; page?: string }) {
     const feedback = await this.prisma.feedback.create({ data });
 
-    await this.email.sendEmail(
-  process.env.GMAIL_USER!,
-  `New Feedback: ${data.category}`,
-  `<p><b>Rating:</b> ${data.rating}/5</p>
-   <p><b>Category:</b> ${data.category}</p>
-   <p><b>Message:</b> ${data.message}</p>
-   <p><b>Page:</b> ${data.page || 'N/A'}</p>`
-);
+    const mail = feedbackNotificationEmail(data);
+    await this.email.sendEmail(process.env.GMAIL_USER!, mail.subject, mail.html, mail.text);
     return feedback;
 
   }
