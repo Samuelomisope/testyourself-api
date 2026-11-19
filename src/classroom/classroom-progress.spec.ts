@@ -22,6 +22,9 @@ describe('averageBestPercent', () => {
   it('averages the best score of each checked step', () => {
     expect(averageBestPercent(summarizeSteps([row(0, 3, 3, 1), row(1, 1, 2, 1), row(1, 0, 2, 2)]))).toBe(75);
   });
+  it('rounds to the nearest whole percent', () => {
+    expect(averageBestPercent(summarizeSteps([row(0, 2, 3, 1)]))).toBe(67);
+  });
   it('is null when nothing was scored, including attempts where nothing could be marked', () => {
     expect(averageBestPercent([])).toBeNull();
     expect(averageBestPercent(summarizeSteps([row(0, 0, 0, 1)]))).toBeNull();
