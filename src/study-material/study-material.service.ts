@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, ForbiddenException, BadRequestException,
 import { PrismaService } from '../prisma/prisma.service';
 import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { attachmentDisposition, safeDownloadName } from './content-disposition';
 import { v4 as uuidv4 } from 'uuid';
 
 import * as unzipper from 'unzipper';
@@ -102,6 +103,21 @@ export class StudyMaterialService {
       Key: key,
     });
     return getSignedUrl(this.s3, command, { expiresIn: 3600 });
+  }
+
+  /** A one-hour link that makes the browser save the file instead of showing it. Same visibility rule as findOne; does not count as another download. */
+  async getDownloadUrl(id: string, userId: string) {
+    const material = await this.prisma.studyMaterial.findUnique({ where: { id }, select: { id: true, title: true, fileUrl: true, fileType: true, isPublic: true, userId: true, classificationStatus: true } });
+    if (!material || material.classificationStatus === 'DUPLICATE') throw new NotFoundException('Study material not found');
+    if (!material.isPublic && material.userId !== userId) throw new ForbiddenException('Not your material');
+    let key: string;
+    try { key = this.extractR2Key(material.fileUrl); } catch { throw new NotFoundException('Stored file reference is invalid'); }
+    const command = new GetObjectCommand({
+      Bucket: process.env.R2_BUCKET_NAME,
+      Key: key,
+      ResponseContentDisposition: attachmentDisposition(safeDownloadName(material.title, material.fileType, key)),
+    });
+    return { url: await getSignedUrl(this.s3, command, { expiresIn: 3600 }), expiresIn: 3600 };
   }
 
   async withSignedUrl(material: any) {
