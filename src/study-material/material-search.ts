@@ -38,3 +38,8 @@ export function cleanReportNote(note: unknown): string | null {
   const text = note.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').trim().slice(0, 500);
   return text || null;
 }
+
+/** Form fields arrive as strings. Only the exact text "true" turns a flag on. */
+export function parseFlag(value: unknown): boolean {
+  return value === true || value === 'true';
+}

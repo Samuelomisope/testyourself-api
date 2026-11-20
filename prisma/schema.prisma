@@ -176,6 +176,7 @@ model StudyMaterial {
   courseId       String?         // NEW — nullable during transition, make required after backfill
   isDeleted      Boolean         @default(false)
   needsReview    Boolean         @default(false)
+  isPastQuestion Boolean         @default(false) // an exam or test paper, used by timed practice
 
   flashcardDecks FlashcardDeck[]
   university     University      @relation(fields: [universityId], references: [id])
@@ -201,6 +202,7 @@ model StudyMaterial {
   @@index([fileHash])
   @@index([classificationStatus])
   @@index([universityId, createdAt])
+  @@index([isPastQuestion])
 }
 
 model School {

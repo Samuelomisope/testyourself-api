@@ -11,7 +11,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthUser } from '../common/decorators/current-user.decorator';
 import { PrismaService } from '../prisma/prisma.service';
 import { validateUploadedFile } from '../common/file-signature';
-import { MIN_CONTENT_SEARCH_LENGTH, withSnippets } from './material-search';
+import { MIN_CONTENT_SEARCH_LENGTH, parseFlag, withSnippets } from './material-search';
 import { Throttle } from '@nestjs/throttler';
 
 const MAX_MATERIAL_UPLOAD_SIZE = 100 * 1024 * 1024;
@@ -57,6 +57,7 @@ async upload(
     course?: string;
     courseId?: string;   // ← new
     isPublic?: string;
+    isPastQuestion?: string;
     university?: string;
   },
   @CurrentUser() currentUser: AuthUser,
@@ -99,6 +100,7 @@ async upload(
     course: body.course,
     courseId: body.courseId,   // ← new
     isPublic: body.isPublic !== 'false',
+    isPastQuestion: parseFlag(body.isPastQuestion),
   });
 }
 
@@ -113,6 +115,7 @@ async upload(
     @Query('courseId') courseId?: string,
     @Query('search') search?: string,
     @Query('university') universitySlug?: string,
+    @Query('pastQuestions') pastQuestions?: string,
   ) {
     const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
     if (!user) return [];
@@ -126,6 +129,7 @@ async upload(
         ...(semester && { semester }),
         ...(course && { course }),
         ...(courseId && { courseId }),
+        ...(parseFlag(pastQuestions) && { isPastQuestion: true }),
         ...(universitySlug && { university: { slug: universitySlug } }),
       
         AND: [
@@ -215,6 +219,7 @@ async update(
     course?: string;
     courseId?: string | null;   // ← new
     isPublic?: string;
+    isPastQuestion?: string;
   },
   @CurrentUser() currentUser: AuthUser,
 ) {
@@ -230,6 +235,7 @@ async update(
     course: body.course,
     courseId: body.courseId,   // ← new
     isPublic: body.isPublic === undefined ? undefined : body.isPublic !== 'false',
+    isPastQuestion: body.isPastQuestion === undefined ? undefined : parseFlag(body.isPastQuestion),
   });
 }
 
