@@ -206,7 +206,9 @@ export class ClassroomService {
   }
 
   async updateSession(userId: string, sessionId: string, dto: UpdateClassroomSessionDto) {
-    await this.requireSession(userId, sessionId);
+    const session = await this.requireSession(userId, sessionId);
+    // A lesson being deleted must not be flipped back to ACTIVE (or renamed) by a late request.
+    if ([ClassroomSessionStatus.DELETING, ClassroomSessionStatus.DELETE_FAILED].includes(session.status)) throw new NotFoundException('Classroom session not found.');
     return this.db.classroomSession.update({ where: { id: sessionId }, data: { ...(dto.title !== undefined ? { title: dto.title.trim() } : {}), ...(dto.status ? { status: dto.status } : {}), ...(dto.tutorVoice ? { tutorVoice: dto.tutorVoice } : {}) }, select: this.sessionSelect() });
   }
 

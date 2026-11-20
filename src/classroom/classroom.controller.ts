@@ -26,6 +26,7 @@ export class ClassroomController {
   createSession(@CurrentUser() user: AuthUser, @Body() dto: CreateClassroomSessionDto) { return this.classroom.createSession(user.sub, dto); }
 
   @Get('progress')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   listProgress(@CurrentUser() user: AuthUser, @Query('limit') limit?: string, @Query('before') before?: string) {
     const parsed = limit === undefined ? 30 : Number(limit);
     if (!Number.isInteger(parsed) || parsed < 1 || parsed > 100) throw new BadRequestException('Limit must be between 1 and 100.');
@@ -56,9 +57,11 @@ export class ClassroomController {
   submitAttempt(@CurrentUser() user: AuthUser, @Param('sessionId', ParseUUIDPipe) id: string, @Param('assessmentId', ParseUUIDPipe) assessmentId: string, @Body() dto: SubmitAssessmentAttemptDto) { return this.classroom.submitAssessmentAttempt(user.sub, id, assessmentId, dto); }
 
   @Get('sessions/:sessionId/assessments')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   listAssessments(@CurrentUser() user: AuthUser, @Param('sessionId', ParseUUIDPipe) id: string) { return this.classroom.listAssessments(user.sub, id); }
 
   @Patch('sessions/:sessionId')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   updateSession(@CurrentUser() user: AuthUser, @Param('sessionId', ParseUUIDPipe) id: string, @Body() dto: UpdateClassroomSessionDto) { return this.classroom.updateSession(user.sub, id, dto); }
 
   @Delete('sessions/:sessionId')
