@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
+import { adminMessageEmail } from '../email/email-templates';
 import { StudyMaterialService } from '../study-material/study-material.service';
 
 @Injectable()
@@ -369,19 +370,8 @@ async sendMessageToUser(userId: string, subject: string, message: string) {
 
   if (!user) throw new NotFoundException(`User not found`);
 
-  const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!);
-
-  await this.email.sendEmail(
-    user.email,
-    subject,
-    `
-    <div style="font-family: sans-serif; max-width: 500px; margin: auto;">
-      <h2 style="color: #7c3aed;">Hey ${escapeHtml(user.displayName || 'there')}! 👋</h2>
-      <p>${escapeHtml(message)}</p>
-      <p style="margin-top:24px; color:#999; font-size:12px;">If this email landed in spam, please mark it as "Not Spam" to keep receiving updates from TestYourself.</p>
-    </div>
-    `
-  );
+  const mail = adminMessageEmail(subject, user.displayName, message);
+  await this.email.sendEmail(user.email, mail.subject, mail.html, mail.text);
 
   return { success: true, sentTo: user.email };
 }
@@ -413,17 +403,6 @@ async getAllNovels() {
     });
   }
 
-  private buildAnnouncementHtml(displayName: string, description: string) {
-  const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!);
-  return `
-    <div style="font-family: sans-serif; max-width: 500px; margin: auto;">
-      <h2 style="color: #7c3aed;">Hey ${escapeHtml(displayName || 'there')}! 👋</h2>
-      <p>${escapeHtml(description)}</p>
-      <p style="margin-top:24px; color:#999; font-size:12px;">If this email landed in spam, please mark it as "Not Spam" to keep receiving updates from TestYourself.</p>
-    </div>
-  `;
-}
-
 async broadcastToAll(title: string, description: string) {
   const users = await this.prisma.user.findMany({
     where: { isBanned: false },
@@ -433,7 +412,8 @@ async broadcastToAll(title: string, description: string) {
   let sent = 0;
   for (const user of users) {
     try {
-      await this.email.sendEmail(user.email, title, this.buildAnnouncementHtml(user.displayName, description));
+      const mail = adminMessageEmail(title, user.displayName, description);
+      await this.email.sendEmail(user.email, mail.subject, mail.html, mail.text);
       sent++;
     } catch (err) {
       // one bad address shouldn't kill the whole broadcast — log and keep going
@@ -452,7 +432,8 @@ async broadcastToOne(email: string, title: string, description: string) {
 
   if (!user) throw new NotFoundException(`No user found with email ${email}`);
 
-  await this.email.sendEmail(user.email, title, this.buildAnnouncementHtml(user.displayName, description));
+  const mail = adminMessageEmail(title, user.displayName, description);
+      await this.email.sendEmail(user.email, mail.subject, mail.html, mail.text);
 
   return { success: true, sentTo: user.email };
 }

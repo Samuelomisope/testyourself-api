@@ -1,6 +1,6 @@
 import {
-  BadRequestException, Body, Controller, Delete, Get, Param, ParseUUIDPipe,
-  Patch, Post, Query, UploadedFile, UseGuards, UseInterceptors,
+  BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, ParseUUIDPipe,
+  Patch, Post, Put, Query, UploadedFile, UseGuards, UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
@@ -11,7 +11,7 @@ import { validateUploadedFile } from '../common/file-signature';
 import { ClassroomService } from './classroom.service';
 import {
   CreateClassroomSessionDto, CreateClassroomTurnDto, LinkClassroomMaterialDto,
-  ListClassroomTurnsQueryDto, UpdateClassroomSessionDto,
+  ListClassroomTurnsQueryDto, ResumePositionDto, SubmitAssessmentAttemptDto, UpdateClassroomSessionDto,
 } from './classroom.dto';
 
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
@@ -25,6 +25,14 @@ export class ClassroomController {
   @Post('sessions')
   createSession(@CurrentUser() user: AuthUser, @Body() dto: CreateClassroomSessionDto) { return this.classroom.createSession(user.sub, dto); }
 
+  @Get('progress')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  listProgress(@CurrentUser() user: AuthUser, @Query('limit') limit?: string, @Query('before') before?: string) {
+    const parsed = limit === undefined ? 30 : Number(limit);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 100) throw new BadRequestException('Limit must be between 1 and 100.');
+    return this.classroom.listProgress(user.sub, parsed, before);
+  }
+
   @Get('sessions')
   listSessions(@CurrentUser() user: AuthUser, @Query('limit') limit?: string) {
     const parsed = limit === undefined ? 30 : Number(limit);
@@ -35,7 +43,25 @@ export class ClassroomController {
   @Get('sessions/:sessionId')
   getSession(@CurrentUser() user: AuthUser, @Param('sessionId', ParseUUIDPipe) id: string) { return this.classroom.getSession(user.sub, id); }
 
+  @Put('sessions/:sessionId/resume')
+  @HttpCode(204)
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  async saveResume(@CurrentUser() user: AuthUser, @Param('sessionId', ParseUUIDPipe) id: string, @Body() dto: ResumePositionDto) { await this.classroom.saveResume(user.sub, id, dto); }
+
+  @Post('sessions/:sessionId/steps/:stepIndex/assessment')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  getAssessment(@CurrentUser() user: AuthUser, @Param('sessionId', ParseUUIDPipe) id: string, @Param('stepIndex', ParseIntPipe) stepIndex: number) { return this.classroom.getAssessment(user.sub, id, stepIndex); }
+
+  @Post('sessions/:sessionId/assessments/:assessmentId/attempts')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  submitAttempt(@CurrentUser() user: AuthUser, @Param('sessionId', ParseUUIDPipe) id: string, @Param('assessmentId', ParseUUIDPipe) assessmentId: string, @Body() dto: SubmitAssessmentAttemptDto) { return this.classroom.submitAssessmentAttempt(user.sub, id, assessmentId, dto); }
+
+  @Get('sessions/:sessionId/assessments')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  listAssessments(@CurrentUser() user: AuthUser, @Param('sessionId', ParseUUIDPipe) id: string) { return this.classroom.listAssessments(user.sub, id); }
+
   @Patch('sessions/:sessionId')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   updateSession(@CurrentUser() user: AuthUser, @Param('sessionId', ParseUUIDPipe) id: string, @Body() dto: UpdateClassroomSessionDto) { return this.classroom.updateSession(user.sub, id, dto); }
 
   @Delete('sessions/:sessionId')

@@ -175,6 +175,11 @@ async upload(
     if (!user) return [];
     return this.studyMaterialService.findByUser(user.id);
   }
+  @Get(':id/download-url')
+  async downloadUrl(@Param('id') id: string, @CurrentUser() currentUser: AuthUser) {
+    return this.studyMaterialService.getDownloadUrl(id, currentUser.sub);
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string, @CurrentUser() currentUser: AuthUser) {
     const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });

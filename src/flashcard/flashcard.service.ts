@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { calculateSM2, ReviewRating } from './sm2';
+import { computeStreak, summarizeDue } from './flashcard-summary';
 
 @Injectable()
 export class FlashcardService {
@@ -58,6 +59,22 @@ export class FlashcardService {
         cards: { select: { id: true } }, // just for counts on the list view
       },
     });
+  }
+
+  /** What to study today: due cards per deck (own decks, plus any deck the person has already studied) and the review streak. */
+  async summary(userId: string, tzOffsetMin = 0) {
+    const now = new Date();
+    const cards = await this.prisma.flashcard.findMany({
+      where: { OR: [{ deck: { userId } }, { progress: { some: { userId } } }] },
+      take: 5000,
+      select: { deckId: true, deck: { select: { title: true } }, progress: { where: { userId }, select: { nextReviewDate: true } } },
+    });
+    const logs = await this.prisma.flashcardReviewLog.findMany({
+      where: { userId, reviewedAt: { gte: new Date(now.getTime() - 400 * 86_400_000) } },
+      take: 20000, select: { reviewedAt: true },
+    });
+    const due = summarizeDue(cards.map((c) => ({ deckId: c.deckId, deckTitle: c.deck.title, nextReviewDate: c.progress[0]?.nextReviewDate ?? null })), now);
+    return { ...due, ...computeStreak(logs.map((l) => l.reviewedAt), now, tzOffsetMin) };
   }
 
   async findMine(userId: string) {

@@ -38,6 +38,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { BillingModule } from './billing/billing.module';
 import { SearchModule } from './search/search.module';
 import { ClassroomModule } from './classroom/classroom.module';
+import { OnboardingModule } from './onboarding/onboarding.module';
 
 @Module({
  imports: [
@@ -56,6 +57,7 @@ import { ClassroomModule } from './classroom/classroom.module';
     }),
   }),
     PrismaModule,
+    OnboardingModule,
     AuthModule,
     UsersModule,
     UniversitiesModule,
