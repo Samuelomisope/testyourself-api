@@ -90,6 +90,7 @@ model User {
   flashcardDecks      FlashcardDeck[]
   flashcardProgress   FlashcardProgress[]
   flashcardReviewLogs FlashcardReviewLog[]
+  materialReports MaterialReport[]
   leaderboard         LeaderboardEntry?
   marketplaceItems    MarketplaceItem[]
   messagesSent        Message[]            @relation("SentMessages")
@@ -181,6 +182,7 @@ model StudyMaterial {
   user           User            @relation(fields: [userId], references: [id])
   courseRef      Course?         @relation(fields: [courseId], references: [id])
   classroomDocuments ClassroomDocument[]
+  reports        MaterialReport[]
   
   fileHash                 String?               @db.VarChar(64) // SHA-256 hex digest
   classificationStatus     ClassificationStatus  @default(PENDING)
@@ -971,4 +973,27 @@ model ClassroomUsage {
 
   @@unique([userId, usageDate])
   @@index([usageDate])
+}
+
+enum MaterialReportReason {
+  BROKEN_FILE
+  WRONG_COURSE
+  INAPPROPRIATE
+  DUPLICATE
+  OTHER
+}
+
+// A student's report that a material is broken or wrong. One report per student per material.
+model MaterialReport {
+  id         String               @id @default(uuid())
+  materialId String
+  userId     String
+  reason     MaterialReportReason
+  note       String?              @db.VarChar(500)
+  createdAt  DateTime             @default(now())
+  material   StudyMaterial        @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  user       User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([materialId, userId])
+  @@index([materialId])
 }
