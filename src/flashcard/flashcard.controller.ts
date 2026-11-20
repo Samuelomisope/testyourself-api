@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Delete, Param, Body, UseGuards,
+  Controller, Get, Post, Delete, Param, Body, Query, UseGuards,
 } from '@nestjs/common';
 import { FlashcardService } from './flashcard.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -7,6 +7,8 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthUser } from '../common/decorators/current-user.decorator';
 import { PrismaService } from '../prisma/prisma.service';
 import { ReviewRating } from './sm2';
+import { Throttle } from '@nestjs/throttler';
+import { clampOffset } from './flashcard-summary';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 @Controller('flashcards')
@@ -47,6 +49,12 @@ export class FlashcardController {
     const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub } });
     if (!user || !user.universityId) return [];
     return this.flashcardService.findAll(user.id, user.universityId);
+  }
+
+  @Get('summary')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  async summary(@CurrentUser() currentUser: AuthUser, @Query('tz') tz?: string) {
+    return this.flashcardService.summary(currentUser.sub, clampOffset(tz));
   }
 
   @Get('decks/my')

@@ -116,6 +116,7 @@ model User {
   premiumPayments PremiumPayment[]
   classroomSessions ClassroomSession[]
   classroomUsage ClassroomUsage[]
+  classroomAttempts ClassroomAttempt[]
 }
 
 model PremiumPayment {
@@ -869,6 +870,9 @@ model ClassroomSession {
   activeTurnRequestId   String?
   turnLeaseVersion      Int                     @default(0)
   turnLeaseExpiresAt    DateTime?
+  // Where the learner last was ({ v: 1, stepIndex, eventId, boardPage }), so another device can offer to continue.
+  resumePosition        Json?
+  resumeUpdatedAt       DateTime?
   createdAt             DateTime                @default(now())
   updatedAt             DateTime                @updatedAt
   user                  User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -876,6 +880,7 @@ model ClassroomSession {
   documents             ClassroomDocument[]
   turns                 ClassroomTurn[]
   turnRequests          ClassroomTurnRequest[]
+  assessments           ClassroomAssessment[]
 
   @@index([userId, updatedAt])
   @@index([userId, status, updatedAt])
@@ -982,4 +987,32 @@ model UserFeatureSeen {
   user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([userId, key])
+}
+
+// A short check at the end of one lesson step. `questions` holds the answers and so is never sent to the client before an attempt.
+model ClassroomAssessment {
+  id          String   @id @default(uuid())
+  sessionId   String
+  stepIndex   Int
+  questions   Json
+  createdAt   DateTime @default(now())
+  session     ClassroomSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  attempts    ClassroomAttempt[]
+
+  @@unique([sessionId, stepIndex])
+}
+
+model ClassroomAttempt {
+  id            String   @id @default(uuid())
+  assessmentId  String
+  userId        String
+  answers       Json
+  score         Int
+  total         Int
+  createdAt     DateTime @default(now())
+  assessment    ClassroomAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([assessmentId, userId, createdAt])
+  @@index([userId, createdAt])
 }
