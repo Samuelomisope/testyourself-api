@@ -1,5 +1,5 @@
 import {
-  BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe,
+  BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, ParseUUIDPipe,
   Patch, Post, Put, Query, UploadedFile, UseGuards, UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -11,7 +11,7 @@ import { validateUploadedFile } from '../common/file-signature';
 import { ClassroomService } from './classroom.service';
 import {
   CreateClassroomSessionDto, CreateClassroomTurnDto, LinkClassroomMaterialDto,
-  ListClassroomTurnsQueryDto, ResumePositionDto, UpdateClassroomSessionDto,
+  ListClassroomTurnsQueryDto, ResumePositionDto, SubmitAssessmentAttemptDto, UpdateClassroomSessionDto,
 } from './classroom.dto';
 
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
@@ -39,6 +39,17 @@ export class ClassroomController {
   @HttpCode(204)
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   async saveResume(@CurrentUser() user: AuthUser, @Param('sessionId', ParseUUIDPipe) id: string, @Body() dto: ResumePositionDto) { await this.classroom.saveResume(user.sub, id, dto); }
+
+  @Post('sessions/:sessionId/steps/:stepIndex/assessment')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  getAssessment(@CurrentUser() user: AuthUser, @Param('sessionId', ParseUUIDPipe) id: string, @Param('stepIndex', ParseIntPipe) stepIndex: number) { return this.classroom.getAssessment(user.sub, id, stepIndex); }
+
+  @Post('sessions/:sessionId/assessments/:assessmentId/attempts')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  submitAttempt(@CurrentUser() user: AuthUser, @Param('sessionId', ParseUUIDPipe) id: string, @Param('assessmentId', ParseUUIDPipe) assessmentId: string, @Body() dto: SubmitAssessmentAttemptDto) { return this.classroom.submitAssessmentAttempt(user.sub, id, assessmentId, dto); }
+
+  @Get('sessions/:sessionId/assessments')
+  listAssessments(@CurrentUser() user: AuthUser, @Param('sessionId', ParseUUIDPipe) id: string) { return this.classroom.listAssessments(user.sub, id); }
 
   @Patch('sessions/:sessionId')
   updateSession(@CurrentUser() user: AuthUser, @Param('sessionId', ParseUUIDPipe) id: string, @Body() dto: UpdateClassroomSessionDto) { return this.classroom.updateSession(user.sub, id, dto); }
