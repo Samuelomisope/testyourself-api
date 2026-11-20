@@ -14,6 +14,7 @@ import { AIService } from '../provider/services/ai.service';
 import { chunkText } from './classroom-chunking';
 import { BoardBlock, buildBoardPrompt, composeEvents, describeBoardBlock, sanitizeBlock, EVENTS_VERSION, LessonEvent, parseBoardPass } from './classroom-events';
 import { CreateClassroomSessionDto, CreateClassroomTurnDto, LinkClassroomMaterialDto, ResumePositionDto, SubmitAssessmentAttemptDto, UpdateClassroomSessionDto } from './classroom.dto';
+import { AttemptRow, stepTitle, summarizeLesson, summarizeSteps } from './classroom-progress';
 import { buildAssessmentPrompt, buildMarkPrompt, markAttempt, parseAssessment, parseMark, publicQuestions, readStoredQuestions, revealResults, Response, StoredQuestion } from './classroom-assessment';
 
 const FOLDER = 'classroom';
@@ -179,18 +180,29 @@ export class ClassroomService {
     return { id: attempt.id, assessmentId, stepIndex: assessment.stepIndex, score: marked.score, total: marked.total, results: revealResults(questions, marked.answers) };
   }
 
-  /** Per step: how many attempts, the best and the latest score. Phase I uses this for progress. */
+  /** Per step: how many attempts, the best and the latest score, with the step's title. */
   async listAssessments(userId: string, sessionId: string) {
-    await this.requireSession(userId, sessionId);
+    const session = await this.requireSession(userId, sessionId);
     const rows = await this.db.classroomAttempt.findMany({ where: { userId, assessment: { sessionId } }, orderBy: { createdAt: 'asc' }, take: 500, select: { assessmentId: true, score: true, total: true, createdAt: true, assessment: { select: { stepIndex: true } } } });
-    const steps = new Map<number, { stepIndex: number; assessmentId: string; attempts: number; best: { score: number; total: number }; latest: { score: number; total: number; createdAt: Date } }>();
-    for (const r of rows) {
-      const step = r.assessment.stepIndex;
-      const current = steps.get(step);
-      const ratio = (x: { score: number; total: number }) => (x.total ? x.score / x.total : 0);
-      steps.set(step, { stepIndex: step, assessmentId: r.assessmentId, attempts: (current?.attempts ?? 0) + 1, best: !current || ratio(r) > ratio(current.best) ? { score: r.score, total: r.total } : current.best, latest: { score: r.score, total: r.total, createdAt: r.createdAt } });
-    }
-    return [...steps.values()].sort((a, b) => a.stepIndex - b.stepIndex);
+    return summarizeSteps(rows.map((r) => ({ assessmentId: r.assessmentId, score: r.score, total: r.total, createdAt: r.createdAt, stepIndex: r.assessment.stepIndex })))
+      .map((step) => ({ ...step, stepTitle: stepTitle(session.outline, step.stepIndex) }));
+  }
+
+  /** One row per lesson for the "My learning" page, most recently studied first. `before` (an ISO time) pages back. */
+  async listProgress(userId: string, limit = 30, before?: string) {
+    const cursor = before ? new Date(before) : undefined;
+    if (cursor && Number.isNaN(cursor.getTime())) throw new BadRequestException('before must be a valid time.');
+    const sessions = await this.db.classroomSession.findMany({
+      where: { userId, status: { notIn: [ClassroomSessionStatus.DELETING, ClassroomSessionStatus.DELETE_FAILED] }, ...(cursor ? { updatedAt: { lt: cursor } } : {}) },
+      orderBy: { updatedAt: 'desc' }, take: Math.min(Math.max(limit, 1), 100),
+      select: { id: true, title: true, topic: true, status: true, mode: true, outline: true, currentStepIndex: true, updatedAt: true, _count: { select: { turns: true } } },
+    });
+    if (!sessions.length) return { lessons: [], next: null };
+    const attempts = await this.db.classroomAttempt.findMany({ where: { userId, assessment: { sessionId: { in: sessions.map((s) => s.id) } } }, orderBy: { createdAt: 'asc' }, take: 5000, select: { assessmentId: true, score: true, total: true, createdAt: true, assessment: { select: { sessionId: true, stepIndex: true } } } });
+    const bySession = new Map<string, AttemptRow[]>();
+    for (const a of attempts) bySession.set(a.assessment.sessionId, [...(bySession.get(a.assessment.sessionId) ?? []), { assessmentId: a.assessmentId, score: a.score, total: a.total, createdAt: a.createdAt, stepIndex: a.assessment.stepIndex }]);
+    const lessons = sessions.map((s) => summarizeLesson(s, bySession.get(s.id) ?? []));
+    return { lessons, next: sessions.length === Math.min(Math.max(limit, 1), 100) ? sessions[sessions.length - 1].updatedAt.toISOString() : null };
   }
 
   async updateSession(userId: string, sessionId: string, dto: UpdateClassroomSessionDto) {

@@ -130,8 +130,39 @@ describe('ClassroomService assessments', () => {
       ]);
       const out = await service.listAssessments('u', 's');
       expect(out).toHaveLength(2);
-      expect(out[0]).toMatchObject({ stepIndex: 0, attempts: 3, best: { score: 3, total: 3 }, latest: { score: 2, total: 3 } });
+      expect(out[0]).toMatchObject({ stepTitle: 'One', stepIndex: 0, attempts: 3, best: { score: 3, total: 3 }, latest: { score: 2, total: 3 } });
       expect(db.classroomAttempt.findMany.mock.calls[0][0].where).toMatchObject({ userId: 'u', assessment: { sessionId: 's' } });
+    });
+  });
+
+  describe('listProgress', () => {
+    const when = (n: number) => new Date(Date.UTC(2026, 10, n));
+    beforeEach(() => {
+      db.classroomSession.findMany = jest.fn().mockResolvedValue([
+        { id: 's1', title: 'A', topic: 'A', status: 'ACTIVE', mode: 'CLASSROOM', outline: [{}, {}], currentStepIndex: 1, updatedAt: when(5), _count: { turns: 2 } },
+        { id: 's2', title: 'B', topic: 'B', status: 'ACTIVE', mode: 'CLASSROOM', outline: null, currentStepIndex: 0, updatedAt: when(3), _count: { turns: 0 } },
+      ]);
+      db.classroomAttempt.findMany.mockResolvedValue([{ assessmentId: 'a1', score: 2, total: 2, createdAt: when(4), assessment: { sessionId: 's1', stepIndex: 0 } }]);
+    });
+    it('returns one row per lesson with its scores, scoped to the user', async () => {
+      const out = await service.listProgress('u', 30);
+      expect(out.lessons.map((l: any) => [l.id, l.averageBest, l.started])).toEqual([['s1', 100, true], ['s2', null, false]]);
+      expect(db.classroomSession.findMany.mock.calls[0][0].where.userId).toBe('u');
+      expect(db.classroomAttempt.findMany.mock.calls[0][0].where).toMatchObject({ userId: 'u', assessment: { sessionId: { in: ['s1', 's2'] } } });
+      expect(out.next).toBeNull();
+    });
+    it('pages with a cursor when the page is full', async () => {
+      const out = await service.listProgress('u', 2);
+      expect(out.next).toBe(when(3).toISOString());
+      await service.listProgress('u', 2, when(3).toISOString());
+      expect(db.classroomSession.findMany.mock.calls[1][0].where.updatedAt).toEqual({ lt: when(3) });
+    });
+    it('rejects a bad cursor and skips the attempt query when there are no lessons', async () => {
+      await expect(service.listProgress('u', 30, 'nope')).rejects.toBeInstanceOf(BadRequestException);
+      db.classroomSession.findMany.mockResolvedValue([]);
+      db.classroomAttempt.findMany.mockClear();
+      expect(await service.listProgress('u', 30)).toEqual({ lessons: [], next: null });
+      expect(db.classroomAttempt.findMany).not.toHaveBeenCalled();
     });
   });
 });
