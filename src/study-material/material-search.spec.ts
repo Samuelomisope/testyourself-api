@@ -1,4 +1,4 @@
-import { cleanReportNote, makeSnippet, withSnippets } from './material-search';
+import { cleanReportNote, makeSnippet, parseFlag, withSnippets } from './material-search';
 
 describe('makeSnippet', () => {
   const text = 'Chapter 3. The second law of thermodynamics states that entropy of an isolated system never decreases over time.';
@@ -49,5 +49,13 @@ describe('cleanReportNote', () => {
     expect(cleanReportNote('   ')).toBeNull();
     expect(cleanReportNote(5)).toBeNull();
     expect(cleanReportNote('a\u0001b')).toBe('ab');
+  });
+});
+
+describe('parseFlag', () => {
+  it('only accepts true and "true"', () => {
+    expect(parseFlag('true')).toBe(true);
+    expect(parseFlag(true)).toBe(true);
+    for (const v of ['false', 'TRUE', '1', '', undefined, null, 1]) expect(parseFlag(v)).toBe(false);
   });
 });

@@ -24,6 +24,7 @@ const BULK_UPDATE_ALLOWED_FIELDS = [
   'course',
   'isPublic',
   'needsReview',
+  'isPastQuestion',
 ] as const;
 
 function mimeTypeFor(filename: string) {
@@ -352,6 +353,7 @@ export class StudyMaterialService {
   course?: string;
   courseId?: string;   // ← new: trust this when the frontend already resolved it
   isPublic?: boolean;
+  isPastQuestion?: boolean;
 }) {
   const fileUrl = await this.uploadToR2(data.fileBuffer, data.originalName, data.fileType);
 
@@ -395,6 +397,7 @@ export class StudyMaterialService {
         course: data.course,
         courseId: courseId ?? undefined,
         isPublic: data.isPublic ?? true,
+        isPastQuestion: data.isPastQuestion ?? false,
         needsReview: !courseId,
       },
       include: {
@@ -434,6 +437,7 @@ async update(id: string, userId: string, data: {
   semester?: string;
   courseId?: string | null;   // ← new: explicit id from the cascade UI; null = user cleared it
   isPublic?: boolean;
+  isPastQuestion?: boolean;
 }) {
   const material = await this.prisma.studyMaterial.findUnique({ where: { id } });
   if (!material) throw new NotFoundException('Study material not found');
@@ -484,6 +488,7 @@ async update(id: string, userId: string, data: {
       ...(data.level !== undefined && { level: data.level }),
       ...(data.semester !== undefined && { semester: data.semester }),
       ...(data.isPublic !== undefined && { isPublic: data.isPublic }),
+      ...(data.isPastQuestion !== undefined && { isPastQuestion: data.isPastQuestion }),
       ...(touchingClassification && { courseId: resolvedCourseId }),
       ...(touchingClassification && { needsReview: !resolvedCourseId }),
     },
