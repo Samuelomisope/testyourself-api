@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, ForbiddenException, BadRequestException,
 import { PrismaService } from '../prisma/prisma.service';
 import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { cleanReportNote, REPORT_REASONS, REPORTS_FOR_REVIEW, ReportReason } from './material-search';
+import { attachmentDisposition, safeDownloadName } from './content-disposition';
 import { v4 as uuidv4 } from 'uuid';
 
 import * as unzipper from 'unzipper';
@@ -105,39 +105,19 @@ export class StudyMaterialService {
     return getSignedUrl(this.s3, command, { expiresIn: 3600 });
   }
 
-  /** Reports a broken or wrong material. One report per student; sending again updates it. Enough distinct reports put the material in the admin needs-review list. */
-  async report(id: string, userId: string, reasonInput: unknown, noteInput: unknown) {
-    if (typeof reasonInput !== 'string' || !(REPORT_REASONS as readonly string[]).includes(reasonInput)) throw new BadRequestException('Choose a valid reason.');
-    const reason = reasonInput as ReportReason;
-    const material = await this.prisma.studyMaterial.findUnique({ where: { id }, select: { id: true, userId: true, isPublic: true, classificationStatus: true } });
-    if (!material || material.classificationStatus === 'DUPLICATE' || (!material.isPublic && material.userId !== userId)) throw new NotFoundException('Study material not found');
-    if (material.userId === userId) throw new BadRequestException('You can edit or delete your own material instead.');
-    const note = cleanReportNote(noteInput);
-    await this.prisma.materialReport.upsert({
-      where: { materialId_userId: { materialId: id, userId } },
-      create: { materialId: id, userId, reason, note },
-      update: { reason, note },
+  /** A one-hour link that makes the browser save the file instead of showing it. Same visibility rule as findOne; does not count as another download. */
+  async getDownloadUrl(id: string, userId: string) {
+    const material = await this.prisma.studyMaterial.findUnique({ where: { id }, select: { id: true, title: true, fileUrl: true, fileType: true, isPublic: true, userId: true, classificationStatus: true } });
+    if (!material || material.classificationStatus === 'DUPLICATE') throw new NotFoundException('Study material not found');
+    if (!material.isPublic && material.userId !== userId) throw new ForbiddenException('Not your material');
+    let key: string;
+    try { key = this.extractR2Key(material.fileUrl); } catch { throw new NotFoundException('Stored file reference is invalid'); }
+    const command = new GetObjectCommand({
+      Bucket: process.env.R2_BUCKET_NAME,
+      Key: key,
+      ResponseContentDisposition: attachmentDisposition(safeDownloadName(material.title, material.fileType, key)),
     });
-    const distinct = await this.prisma.materialReport.count({ where: { materialId: id } });
-    if (distinct >= REPORTS_FOR_REVIEW) await this.prisma.studyMaterial.update({ where: { id }, data: { needsReview: true } });
-    return { ok: true };
-  }
-
-  /** Most opened materials at the person's university, all time, optionally for one course. */
-  async popular(userId: string, universityId: string, courseId?: string, limitInput?: number) {
-    const take = Math.min(20, Math.max(1, Math.trunc(Number(limitInput) || 8)));
-    const rows = await this.prisma.studyMaterial.findMany({
-      where: {
-        universityId, isDeleted: false, classificationStatus: { not: 'DUPLICATE' }, downloadCount: { gt: 0 },
-        ...(courseId && { courseId }),
-        OR: [{ isPublic: true }, { userId }],
-      },
-      orderBy: [{ downloadCount: 'desc' }, { createdAt: 'desc' }],
-      take,
-      omit: { extractedText: true },
-      include: { user: { select: { displayName: true, photoURL: true } }, courseRef: { select: { id: true, code: true, title: true } } },
-    });
-    return Promise.all(rows.map((m) => this.withSignedUrl(m)));
+    return { url: await getSignedUrl(this.s3, command, { expiresIn: 3600 }), expiresIn: 3600 };
   }
 
   async withSignedUrl(material: any) {
