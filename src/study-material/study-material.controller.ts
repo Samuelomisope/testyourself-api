@@ -11,6 +11,8 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthUser } from '../common/decorators/current-user.decorator';
 import { PrismaService } from '../prisma/prisma.service';
 import { validateUploadedFile } from '../common/file-signature';
+import { MIN_CONTENT_SEARCH_LENGTH, withSnippets } from './material-search';
+import { Throttle } from '@nestjs/throttler';
 
 const MAX_MATERIAL_UPLOAD_SIZE = 100 * 1024 * 1024;
 const materialFileOptions = {
@@ -135,6 +137,8 @@ async upload(
                   { faculty: { contains: search, mode: 'insensitive' as const } },
                   { department: { contains: search, mode: 'insensitive' as const } },
                   { course: { contains: search, mode: 'insensitive' as const } },
+                  // Also look inside the document text we extracted from the PDF.
+                  ...(search.trim().length >= MIN_CONTENT_SEARCH_LENGTH ? [{ extractedText: { contains: search.trim(), mode: 'insensitive' as const } }] : []),
                 ],
               }]
             : []),
@@ -147,6 +151,8 @@ async upload(
         ],
       },
       orderBy: { createdAt: 'desc' },
+      // The full extracted text can be huge; only fetch it when searching, to build a short snippet.
+      ...(search ? {} : { omit: { extractedText: true } }),
       include: {
         user: { select: { displayName: true, photoURL: true } },
         university: { select: { id: true, name: true, shortName: true, slug: true } },
@@ -166,7 +172,20 @@ async upload(
       }
     });
 
-    return Promise.all(materials.map(m => this.studyMaterialService.withSignedUrl(m)));
+    return Promise.all(withSnippets(materials as any[], search).map(m => this.studyMaterialService.withSignedUrl(m)));
+  }
+
+  @Get('popular')
+  async popular(@CurrentUser() currentUser: AuthUser, @Query('courseId') courseId?: string, @Query('limit') limit?: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: currentUser.sub }, select: { id: true, universityId: true } });
+    if (!user?.universityId) return [];
+    return this.studyMaterialService.popular(user.id, user.universityId, courseId || undefined, limit ? Number(limit) : undefined);
+  }
+
+  @Post(':id/report')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  async report(@Param('id') id: string, @Body() body: { reason?: string; note?: string }, @CurrentUser() currentUser: AuthUser) {
+    return this.studyMaterialService.report(id, currentUser.sub, body?.reason, body?.note);
   }
 
   @Get('my')

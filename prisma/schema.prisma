@@ -90,6 +90,7 @@ model User {
   flashcardDecks      FlashcardDeck[]
   flashcardProgress   FlashcardProgress[]
   flashcardReviewLogs FlashcardReviewLog[]
+  materialReports MaterialReport[]
   leaderboard         LeaderboardEntry?
   marketplaceItems    MarketplaceItem[]
   messagesSent        Message[]            @relation("SentMessages")
@@ -183,6 +184,7 @@ model StudyMaterial {
   user           User            @relation(fields: [userId], references: [id])
   courseRef      Course?         @relation(fields: [courseId], references: [id])
   classroomDocuments ClassroomDocument[]
+  reports        MaterialReport[]
   
   fileHash                 String?               @db.VarChar(64) // SHA-256 hex digest
   classificationStatus     ClassificationStatus  @default(PENDING)
