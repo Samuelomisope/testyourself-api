@@ -1020,3 +1020,26 @@ model ClassroomAttempt {
   @@index([assessmentId, userId, createdAt])
   @@index([userId, createdAt])
 }
+
+enum MaterialReportReason {
+  BROKEN_FILE
+  WRONG_COURSE
+  INAPPROPRIATE
+  DUPLICATE
+  OTHER
+}
+
+// A student's report that a material is broken or wrong. One report per student per material.
+model MaterialReport {
+  id         String               @id @default(uuid())
+  materialId String
+  userId     String
+  reason     MaterialReportReason
+  note       String?              @db.VarChar(500)
+  createdAt  DateTime             @default(now())
+  material   StudyMaterial        @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  user       User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([materialId, userId])
+  @@index([materialId])
+}
