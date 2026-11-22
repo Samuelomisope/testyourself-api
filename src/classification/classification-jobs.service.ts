@@ -13,6 +13,10 @@ type ClaimedItem = { id: string; jobId: string; materialId: string; attempts: nu
 export class ClassificationJobsService {
   private readonly logger = new Logger(ClassificationJobsService.name);
   private polling = false;
+  // The worker sleeps when the queue is empty so the database (Neon) can suspend between jobs.
+  // `awake` starts true so the first tick after a restart checks for leftover work once.
+  private awake = true;
+  private wakeAt = 0;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -64,7 +68,14 @@ export class ClassificationJobsService {
       }
       return job.id;
     });
+    this.wake();
     return this.getJob(jobId);
+  }
+
+  /** Resume polling now (a job was queued, or an item was re-queued for retry). */
+  wake() {
+    this.awake = true;
+    this.wakeAt = 0;
   }
 
   async getLatestActiveJob() {
@@ -109,15 +120,38 @@ export class ClassificationJobsService {
   @Cron('*/5 * * * * *')
   async pollQueue() {
     if (this.polling) return;
+    // Idle: no database call at all, so the database can suspend.
+    if (!this.awake && Date.now() < this.wakeAt) return;
     this.polling = true;
     try {
       const item = await this.claimNextItem();
-      if (item) await this.processItem(item);
+      if (item) {
+        this.awake = true;
+        await this.processItem(item);
+      } else {
+        await this.goIdle();
+      }
     } catch (error) {
       this.logger.error(`Classification worker poll failed: ${(error as Error).message}`);
     } finally {
       this.polling = false;
     }
+  }
+
+  /**
+   * Nothing is claimable right now. Sleep until the earliest moment something could be:
+   * a retry that becomes available, or a stale lease (10 minutes) that can be reclaimed.
+   * With nothing pending the worker sleeps until wake() is called.
+   */
+  private async goIdle() {
+    const [row] = await this.prisma.$queryRaw<Array<{ next: Date | null }>>`
+      SELECT MIN(CASE WHEN "status" = 'QUEUED' THEN "availableAt"
+                      ELSE "startedAt" + INTERVAL '10 minutes' END) AS "next"
+      FROM "ClassificationJobItem"
+      WHERE "status" IN ('QUEUED', 'PROCESSING')
+    `;
+    this.awake = false;
+    this.wakeAt = row?.next ? new Date(row.next).getTime() : Number.POSITIVE_INFINITY;
   }
 
   private async claimNextItem(): Promise<ClaimedItem | null> {
