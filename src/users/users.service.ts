@@ -49,6 +49,11 @@ async getRecentActivity(uid: string, type?: string, days = 7) {
     };
   }
 
+  async setEmailReminders(uid: string, enabled: boolean) {
+    const user = await this.prisma.user.update({ where: { id: uid }, data: { emailReminders: enabled }, select: { emailReminders: true } });
+    return { emailReminders: user.emailReminders };
+  }
+
   async updateProfile(uid: string, data: {
     displayName?: string;
     photoURL?: string;

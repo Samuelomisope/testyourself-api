@@ -3,6 +3,8 @@ import { JwtService } from '@nestjs/jwt';
 import { OAuth2Client } from 'google-auth-library';
 import { createHash } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { EmailService } from '../email/email.service';
+import { Logger } from '@nestjs/common';
 
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
@@ -17,7 +19,10 @@ export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private emailService: EmailService,
   ) {}
+
+  private readonly logger = new Logger(AuthService.name);
 
   async loginWithGoogle(idToken: string, deviceInfo?: string) {
     const ticket = await this.googleClient.verifyIdToken({
@@ -47,6 +52,8 @@ export class AuthService {
       user = await this.prisma.user.create({
         data: { googleId, email, displayName: name || email.split('@')[0], photoURL: picture },
       });
+      // Only for a brand-new account, and never allowed to slow down or break sign-in.
+      void this.emailService.sendWelcomeEmail(user.email, user.displayName).catch((error: Error) => this.logger.warn(`Welcome email not sent: ${error.message}`));
     }
     if (user.isBanned) throw new UnauthorizedException('This account is unavailable.');
 

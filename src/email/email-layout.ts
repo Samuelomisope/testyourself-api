@@ -25,6 +25,8 @@ export type EmailContent = {
   note?: string;
   /** Why the person is getting this email. Plain text. */
   reason?: string;
+  /** A link in the footer, such as unsubscribe. Shown as text with the URL in the plain-text version. */
+  footerLink?: { label: string; url: string };
   /** Rows of label and value for internal emails, such as a feedback notice. Plain text. */
   details?: Array<{ label: string; value: string }>;
 };
@@ -74,7 +76,7 @@ ${body}${content.details?.length ? detailsTable(content.details) : ''}${content.
 </td></tr>
 <tr><td bgcolor="#ffffff" style="background-color:#ffffff;padding:0 28px;"><table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%"><tr><td style="border-top:1px solid #e5e7eb;font-size:0;line-height:0;">&nbsp;</td></tr></table></td></tr>
 <tr><td bgcolor="#ffffff" style="background-color:#ffffff;border-radius:0 0 16px 16px;padding:16px 28px 28px 28px;">
-<p style="margin:0 0 8px 0;font-family:${FONT};font-size:13px;line-height:20px;color:#6b7280;">${escapeHtml(reason)}</p>
+<p style="margin:0 0 8px 0;font-family:${FONT};font-size:13px;line-height:20px;color:#6b7280;">${escapeHtml(reason)}</p>${content.footerLink ? `<p style="margin:0 0 8px 0;font-family:${FONT};font-size:13px;line-height:20px;color:#6b7280;"><a href="${escapeHtml(content.footerLink.url)}" style="color:#6b7280;text-decoration:underline;">${escapeHtml(content.footerLink.label)}</a></p>` : ''}
 <p style="margin:0;font-family:${FONT};font-size:13px;line-height:20px;color:#6b7280;"><a href="${BRAND.url}" style="color:${BRAND.color};text-decoration:none;font-weight:600;">${BRAND.name}</a> &middot; ${escapeHtml(BRAND.tagline)} &middot; <a href="${BRAND.url}/privacy" style="color:#6b7280;text-decoration:underline;">Privacy</a> &middot; <a href="${BRAND.url}/terms" style="color:#6b7280;text-decoration:underline;">Terms</a></p>
 <p style="margin:12px 0 0 0;font-family:${FONT};font-size:12px;line-height:18px;color:#9ca3af;">If this email landed in spam, mark it as "Not spam" so you keep getting updates from ${BRAND.name}.</p>
 </td></tr>
@@ -91,6 +93,6 @@ export function renderEmailText(content: EmailContent): string {
   if (content.details?.length) lines.push(...content.details.map((row) => `${row.label}: ${row.value}`), '');
   if (content.button) lines.push(`${content.button.label}: ${content.button.url}`, '');
   if (content.note) lines.push(content.note, '');
-  lines.push('--', content.reason ?? `You are receiving this because you have a ${BRAND.name} account.`, `${BRAND.name} - ${BRAND.tagline} - ${BRAND.url}`);
+  lines.push('--', content.reason ?? `You are receiving this because you have a ${BRAND.name} account.`, ...(content.footerLink ? [`${content.footerLink.label}: ${content.footerLink.url}`] : []), `${BRAND.name} - ${BRAND.tagline} - ${BRAND.url}`);
   return lines.join('\n');
 }

@@ -77,6 +77,8 @@ model User {
   premiumUntil        DateTime?
   streakCount         Int                  @default(0)
   lastActiveAt        DateTime             @default(now())
+  emailReminders      Boolean              @default(true)
+  lastReminderEmailAt DateTime?
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   isBanned            Boolean              @default(false)
