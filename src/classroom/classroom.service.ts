@@ -853,6 +853,24 @@ export class ClassroomService {
     return this.isPremium(user) && premiumCap > MAX_TEXT ? premiumCap : MAX_TEXT;
   }
 
+  /** Today's allowance and how much of it is used, so the app can show exact numbers. Read-only. */
+  async usage(userId: string) {
+    const quota = await this.quota(userId);
+    const user = await this.db.user.findUnique({ where: { id: userId }, select: { isPremium: true, premiumUntil: true } });
+    const day = this.todayUtc();
+    const rows = await this.db.$queryRaw<Array<{ turnsUsed: number; uploadBytesUsed: bigint }>>`SELECT "turnsUsed", "uploadBytesUsed" FROM "ClassroomUsage" WHERE "userId" = ${userId} AND "usageDate" = ${day}`;
+    const turnsUsed = Number(rows[0]?.turnsUsed ?? 0);
+    const uploadBytesUsed = Number(rows[0]?.uploadBytesUsed ?? 0);
+    const uploadBytesLimit = Number(quota.uploadBytes);
+    return {
+      tier: this.isPremium(user) ? 'PREMIUM' : 'FREE',
+      turns: { used: Math.min(turnsUsed, quota.turns), limit: quota.turns, remaining: Math.max(quota.turns - turnsUsed, 0) },
+      uploads: { usedBytes: uploadBytesUsed, limitBytes: uploadBytesLimit, remainingBytes: Math.max(uploadBytesLimit - uploadBytesUsed, 0) },
+      documentsPerSession: quota.documents,
+      resetsAt: new Date(day.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+    };
+  }
+
   private async quota(userId: string): Promise<Quota> {
     const user = await this.db.user.findUnique({ where: { id: userId }, select: { isPremium: true, premiumUntil: true } });
     if (!user) throw new NotFoundException('User not found.');

@@ -25,6 +25,10 @@ export class ClassroomController {
   @Post('sessions')
   createSession(@CurrentUser() user: AuthUser, @Body() dto: CreateClassroomSessionDto) { return this.classroom.createSession(user.sub, dto); }
 
+  @Get('usage')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  usage(@CurrentUser() user: AuthUser) { return this.classroom.usage(user.sub); }
+
   @Get('progress')
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   listProgress(@CurrentUser() user: AuthUser, @Query('limit') limit?: string, @Query('before') before?: string) {
