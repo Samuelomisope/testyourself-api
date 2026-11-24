@@ -29,6 +29,12 @@ export class BillingController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get('payments')
+  getPayments(@CurrentUser() user: AuthUser) {
+    return this.billingService.getPayments(user.sub);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('checkout')
   createCheckout(@CurrentUser() user: AuthUser) {

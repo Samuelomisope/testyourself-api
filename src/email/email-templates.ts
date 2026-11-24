@@ -72,6 +72,39 @@ export function welcomeEmail(displayName?: string | null): RenderedEmail {
   });
 }
 
+export type PremiumReceiptInput = {
+  displayName?: string | null;
+  /** Amount in the currency's main unit, for example 2000 for NGN 2,000. */
+  amount: number;
+  currency: string;
+  reference: string;
+  paidAt: Date;
+  premiumUntil: Date;
+};
+
+const receiptDate = (date: Date) => date.toLocaleDateString('en-NG', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Africa/Lagos' });
+const receiptAmount = (amount: number, currency: string) => `${currency === 'NGN' ? 'NGN' : currency} ${amount.toLocaleString('en-NG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+
+/** Sent once per verified payment. The reference is the same one shown on the Premium page. */
+export function premiumReceiptEmail(input: PremiumReceiptInput): RenderedEmail {
+  return build(`Your ${BRAND.name} Premium receipt`, {
+    preheader: `Payment received. Premium is active until ${receiptDate(input.premiumUntil)}.`,
+    heading: 'Payment received',
+    paragraphs: [
+      `Thank you, ${first(input.displayName)}. Your payment went through and ${BRAND.name} Premium is now active on your account.`,
+    ],
+    details: [
+      { label: 'Amount', value: receiptAmount(input.amount, input.currency) },
+      { label: 'Paid on', value: receiptDate(input.paidAt) },
+      { label: 'Premium until', value: receiptDate(input.premiumUntil) },
+      { label: 'Reference', value: input.reference },
+    ],
+    button: { label: 'See my Premium plan', url: `${BRAND.url}/premium` },
+    note: `If the button does not work, copy this link into your browser: ${BRAND.url}/premium`,
+    reason: `You are receiving this because you paid for ${BRAND.name} Premium. Keep this email as your receipt.`,
+  });
+}
+
 export type StudyReminderInput = {
   displayName?: string | null;
   /** Unfinished tasks in today's study plan, if the student has one. */
