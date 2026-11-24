@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Resend } from 'resend';
-import { reEngagementEmail, updateAnnouncementEmail } from './email-templates';
+import { reEngagementEmail, studyReminderEmail, StudyReminderInput, updateAnnouncementEmail, welcomeEmail } from './email-templates';
 
 @Injectable()
 export class EmailService {
@@ -32,6 +32,16 @@ export class EmailService {
 
   async sendUpdateAnnouncement(to: string, update: { title: string; description: string }) {
     const mail = updateAnnouncementEmail(update);
+    return this.sendEmail(to, mail.subject, mail.html, mail.text);
+  }
+
+  async sendWelcomeEmail(to: string, displayName: string) {
+    const mail = welcomeEmail(displayName);
+    return this.sendEmail(to, mail.subject, mail.html, mail.text);
+  }
+
+  async sendStudyReminder(to: string, input: StudyReminderInput) {
+    const mail = studyReminderEmail(input);
     return this.sendEmail(to, mail.subject, mail.html, mail.text);
   }
 }

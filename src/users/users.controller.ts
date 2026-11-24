@@ -43,6 +43,12 @@ async getMyActivity(
     return this.usersService.updateProfile(user.sub, body);
   }
 
+  @Patch('me/email-reminders')
+  async setEmailReminders(@CurrentUser() user: AuthUser, @Body() body: { enabled?: unknown }) {
+    if (typeof body?.enabled !== 'boolean') throw new BadRequestException('enabled must be true or false.');
+    return this.usersService.setEmailReminders(user.sub, body.enabled);
+  }
+
   @Post('me/activity')
 async logActivity(
   @CurrentUser() user: AuthUser,
