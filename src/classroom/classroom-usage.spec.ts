@@ -42,4 +42,16 @@ describe('ClassroomService.usage', () => {
     expect(expired.tier).toBe('FREE');
     expect(expired.turns).toEqual({ used: 10, limit: 10, remaining: 0 }); // never reports more used than allowed
   });
+
+  it('gives an admin the premium limits with no payment, and a plain student the free ones', async () => {
+    const admin = await build({ isPremium: false, premiumUntil: null, role: 'ADMIN', email: 'a@x.com' }).usage('u1');
+    expect(admin.tier).toBe('PREMIUM');
+    expect(admin.turns.limit).toBe(50);
+    process.env.ADMIN_EMAILS = 'boss@unilib.com.ng';
+    const byEmail = await build({ isPremium: false, premiumUntil: null, role: 'STUDENT', email: 'Boss@unilib.com.ng' }).usage('u1');
+    expect(byEmail.tier).toBe('PREMIUM');
+    const student = await build({ isPremium: false, premiumUntil: null, role: 'STUDENT', email: 'ada@x.com' }).usage('u1');
+    expect(student.tier).toBe('FREE');
+    delete process.env.ADMIN_EMAILS;
+  });
 });

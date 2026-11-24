@@ -5,6 +5,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { hasPaidPremium, hasPremiumAccess, PREMIUM_SELECT } from '../common/premium-access';
 import { createHmac, timingSafeEqual, randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -54,13 +55,13 @@ export class BillingService {
   async getStatus(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { isPremium: true, premiumUntil: true },
+      select: PREMIUM_SELECT,
     });
     if (!user) throw new NotFoundException('User not found.');
-    const active = user.isPremium && (!user.premiumUntil || user.premiumUntil > new Date());
+    const active = hasPremiumAccess(user);
     return {
       isPremium: active,
-      premiumUntil: active ? user.premiumUntil : null,
+      premiumUntil: hasPaidPremium(user) ? user.premiumUntil : null,
       plan: 'monthly',
       price: this.premiumAmountKobo() / 100,
       currency: PREMIUM_CURRENCY,
