@@ -54,4 +54,15 @@ describe('ClassroomService.usage', () => {
     expect(student.tier).toBe('FREE');
     delete process.env.ADMIN_EMAILS;
   });
+
+  it('reports the server voice allowance for Premium only, and only when configured', async () => {
+    process.env.CLASSROOM_PREMIUM_DAILY_SPEECH_CHARS = '20000';
+    const premium = { isPremium: true, premiumUntil: null, role: 'STUDENT' };
+    const on = await build(premium, { turnsUsed: 0, uploadBytesUsed: BigInt(0), speechCharsUsed: 4500 } as any).usage('u1');
+    expect(on.speech).toEqual({ usedChars: 4500, limitChars: 20000, remainingChars: 15500 });
+    const free = await build({ isPremium: false, premiumUntil: null, role: 'STUDENT' }).usage('u1');
+    expect(free.speech).toBeNull();
+    delete process.env.CLASSROOM_PREMIUM_DAILY_SPEECH_CHARS;
+    expect((await build(premium).usage('u1')).speech).toBeNull();
+  });
 });

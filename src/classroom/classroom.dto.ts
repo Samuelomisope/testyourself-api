@@ -110,3 +110,12 @@ export class SubmitAssessmentAttemptDto {
   @IsArray() @ArrayMaxSize(4) @ValidateNested({ each: true }) @Type(() => AssessmentAnswerDto)
   answers: AssessmentAnswerDto[];
 }
+
+/** One short piece of a tutor reply to be read aloud by the server voice. */
+export class SpeechRequestDto {
+  @IsString() @MinLength(1) @MaxLength(1000)
+  text: string;
+
+  @IsIn(['female', 'male'])
+  voice: 'female' | 'male';
+}
