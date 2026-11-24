@@ -11,6 +11,7 @@
 
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
+import { logAiUsage } from '../provider/ai-usage-log';
 import { createHash } from 'crypto';
 import { StudyPlan } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -140,6 +141,7 @@ export class StudyPlanCoachService {
   /* ---------- AI ---------- */
 
   private async generate(signals: CoachSignals): Promise<string> {
+    const startedAt = Date.now();
     const res = await this.client.messages.create(
       {
         model: MODEL,
@@ -154,6 +156,8 @@ export class StudyPlanCoachService {
       },
       { timeout: 8000 },
     );
+
+    logAiUsage(this.logger, 'generate', 'claude', MODEL, res.usage?.input_tokens, res.usage?.output_tokens, startedAt);
 
     const text = res.content
       .map((b) => (b.type === 'text' ? b.text : ''))

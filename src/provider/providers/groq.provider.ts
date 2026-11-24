@@ -1,3 +1,4 @@
+import { logAiUsage } from '../ai-usage-log';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Groq from 'groq-sdk';
@@ -26,6 +27,7 @@ export class GroqProvider implements AIProvider {
   }
 
 async classify(input: ClassificationInput): Promise<ClassificationResult> {
+  const startedAt = Date.now();
   const completion = await this.client.chat.completions.create({
     model: this.model,
     messages: [
@@ -43,6 +45,7 @@ async classify(input: ClassificationInput): Promise<ClassificationResult> {
     max_completion_tokens: 300,
     reasoning_effort: 'low', // GPT-OSS models require low/medium/high — 'none' was Qwen-specific
   } as any);
+  logAiUsage(this.logger, 'classify', this.name, this.model, (completion as any).usage?.prompt_tokens, (completion as any).usage?.completion_tokens, startedAt);
 
   const raw = completion.choices[0]?.message?.content ?? '{}';
   try {
@@ -71,6 +74,7 @@ async generate(prompt: string, context?: RetrievedContext): Promise<AIResponse> 
         .join('\n\n')}\n\nQuestion: ${prompt}`
     : prompt;
 
+  const startedAt = Date.now();
   const completion = await this.client.chat.completions.create({
     model: this.model,
     messages: context?.chunks?.length
@@ -85,6 +89,7 @@ async generate(prompt: string, context?: RetrievedContext): Promise<AIResponse> 
     max_completion_tokens: 2000,
     reasoning_effort: 'low',
   } as any);
+  logAiUsage(this.logger, 'generate', this.name, this.model, (completion as any).usage?.prompt_tokens, (completion as any).usage?.completion_tokens, startedAt);
 
   const choice = completion.choices[0];
   const text = choice?.message?.content ?? '';
@@ -102,6 +107,7 @@ async generate(prompt: string, context?: RetrievedContext): Promise<AIResponse> 
 async understandImage(image: Buffer, question?: string, mimeType?: string): Promise<AIResponse> {
   const resolvedMimeType = mimeType?.startsWith('image/') ? mimeType : 'image/jpeg';
 
+  const startedAt = Date.now();
   const completion = await this.client.chat.completions.create({
     model: this.config.get<string>('GROQ_VISION_MODEL', 'qwen/qwen3.8-27b'),
     messages: [
@@ -119,6 +125,7 @@ async understandImage(image: Buffer, question?: string, mimeType?: string): Prom
     max_completion_tokens: 450,
     reasoning_effort: 'low', // GPT-OSS models require low/medium/high — 'none' was Qwen-specific
   } as any);
+  logAiUsage(this.logger, 'vision', this.name, this.config.get<string>('GROQ_VISION_MODEL', 'qwen/qwen3.8-27b'), (completion as any).usage?.prompt_tokens, (completion as any).usage?.completion_tokens, startedAt);
 
   const text = completion.choices[0]?.message?.content ?? '';
   return { text, isUncertain: text.length === 0, providerUsed: this.name, modelUsed: 'groq-vision' };
