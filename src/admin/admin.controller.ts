@@ -1,14 +1,15 @@
 import {
-  Controller, Get, Delete, Patch, Post, Body, Param, UseGuards,
+  Controller, Get, Delete, Patch, Post, Body, Param, Query, UseGuards,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
+import { FeatureUsageService } from './feature-usage.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AdminGuard } from '../auth/admin.guard'; // adjust the path to wherever admin.guard.ts actually lives
 
 @Controller('admin')
 @UseGuards(JwtAuthGuard, AdminGuard)
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(private readonly adminService: AdminService, private readonly featureUsage: FeatureUsageService) {}
 
   // ── Stats ────────────────────────────────────────────────────────────────
   @Get('stats')
@@ -20,6 +21,12 @@ export class AdminController {
   @Get('analytics')
   async getAnalytics() {
     return this.adminService.getAnalytics();
+  }
+
+  // ── Feature usage: which sections are opened and used most ───────────────
+  @Get('feature-usage')
+  async getFeatureUsage(@Query('days') days?: string) {
+    return this.featureUsage.report(days);
   }
 
   // ── Users ────────────────────────────────────────────────────────────────
