@@ -1,3 +1,4 @@
+import { logAiUsage } from '../ai-usage-log';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Anthropic from '@anthropic-ai/sdk';
@@ -52,12 +53,14 @@ Rules:
       input.fileName ?? 'unknown'
     }\n\nCandidate options: ${JSON.stringify(input.candidateOptions ?? {})}`;
 
+    const startedAt = Date.now();
     const response = await this.client.messages.create({
       model: this.model,
       max_tokens: 1024,
       system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],
     });
+    logAiUsage(this.logger, 'classify', this.name, this.model, response.usage?.input_tokens, response.usage?.output_tokens, startedAt);
 
     const raw = response.content
       .filter((b) => b.type === 'text')
@@ -80,12 +83,14 @@ async generate(prompt: string, context?: RetrievedContext): Promise<AIResponse> 
         .join('\n\n')}`
     : undefined;
 
-  const response = await this.client.messages.create({
+  const startedAt = Date.now();
+    const response = await this.client.messages.create({
     model: this.model,
     max_tokens: 1500,
     system: contextBlock,
     messages: [{ role: 'user', content: prompt }],
   });
+    logAiUsage(this.logger, 'generate', this.name, this.model, response.usage?.input_tokens, response.usage?.output_tokens, startedAt);
 
   const text = response.content
     .filter((b) => b.type === 'text')
@@ -109,7 +114,8 @@ async generate(prompt: string, context?: RetrievedContext): Promise<AIResponse> 
     ? mimeType
     : 'image/jpeg';
 
-  const response = await this.client.messages.create({
+  const startedAt = Date.now();
+    const response = await this.client.messages.create({
     model: this.model,
     max_tokens: 1500,
     messages: [
@@ -128,6 +134,7 @@ async generate(prompt: string, context?: RetrievedContext): Promise<AIResponse> 
       },
     ],
   });
+    logAiUsage(this.logger, 'vision', this.name, this.model, response.usage?.input_tokens, response.usage?.output_tokens, startedAt);
 
   const text = response.content
     .filter((b) => b.type === 'text')
