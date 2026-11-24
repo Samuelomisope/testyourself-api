@@ -8,8 +8,9 @@ import {
 import { createHmac, timingSafeEqual, randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { EmailService } from '../email/email.service';
 
-const PREMIUM_AMOUNT_KOBO = 200_000;
+const DEFAULT_PREMIUM_PRICE_NGN = 2000;
 const PREMIUM_CURRENCY = 'NGN';
 const PAYSTACK_API = 'https://api.paystack.co';
 
@@ -17,7 +18,16 @@ const PAYSTACK_API = 'https://api.paystack.co';
 export class BillingService {
   private readonly logger = new Logger(BillingService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly email: EmailService) {}
+
+  /**
+   * The monthly price in kobo. PREMIUM_PRICE_NGN must equal the amount of the Paystack plan: a payment whose amount
+   * differs is rejected, so changing one without the other makes every payment fail verification.
+   */
+  private premiumAmountKobo(): number {
+    const naira = Number(process.env.PREMIUM_PRICE_NGN);
+    return Number.isInteger(naira) && naira > 0 ? naira * 100 : DEFAULT_PREMIUM_PRICE_NGN * 100;
+  }
 
   private getConfiguration() {
     if (process.env.PAYMENTS_ENABLED !== 'true') {
@@ -52,10 +62,27 @@ export class BillingService {
       isPremium: active,
       premiumUntil: active ? user.premiumUntil : null,
       plan: 'monthly',
-      price: PREMIUM_AMOUNT_KOBO / 100,
+      price: this.premiumAmountKobo() / 100,
       currency: PREMIUM_CURRENCY,
       checkoutAvailable: process.env.PAYMENTS_ENABLED === 'true' &&
         Boolean(process.env.PAYSTACK_SECRET_KEY && process.env.PAYSTACK_PLAN_CODE && process.env.PAYSTACK_CALLBACK_URL),
+    };
+  }
+
+  async getPayments(userId: string) {
+    const rows = await this.prisma.premiumPayment.findMany({
+      where: { userId },
+      orderBy: { paidAt: 'desc' },
+      take: 50,
+      select: { reference: true, amount: true, currency: true, paidAt: true },
+    });
+    return {
+      payments: rows.map((row) => ({
+        reference: row.reference,
+        amount: row.amount / 100,
+        currency: row.currency,
+        paidAt: row.paidAt,
+      })),
     };
   }
 
@@ -139,7 +166,7 @@ export class BillingService {
     const payment = result?.data;
     const verifiedPlan = typeof payment?.plan === 'string' ? payment.plan : payment?.plan?.plan_code;
     if (!response.ok || !result?.status || payment?.status !== 'success' ||
-        payment?.reference !== reference || payment?.amount !== PREMIUM_AMOUNT_KOBO ||
+        payment?.reference !== reference || payment?.amount !== this.premiumAmountKobo() ||
         payment?.currency !== PREMIUM_CURRENCY || verifiedPlan !== planCode) {
       this.logger.warn(`Ignoring unverified or mismatched Paystack payment ${reference}.`);
       return false;
@@ -180,8 +207,9 @@ export class BillingService {
 
     const paidAt = payment.paid_at ? new Date(payment.paid_at) : new Date();
     if (Number.isNaN(paidAt.getTime())) return false;
+    let premiumUntil: Date;
     try {
-      await this.prisma.$transaction(async (tx) => {
+      premiumUntil = await this.prisma.$transaction(async (tx) => {
         await tx.premiumPayment.create({
           data: {
             userId: user!.id,
@@ -200,15 +228,32 @@ export class BillingService {
         const start = current.premiumUntil && current.premiumUntil > paidAt
           ? current.premiumUntil
           : paidAt;
+        const until = addOneCalendarMonth(start);
         await tx.user.update({
           where: { id: user!.id },
-          data: { isPremium: true, premiumUntil: addOneCalendarMonth(start) },
+          data: { isPremium: true, premiumUntil: until },
         });
+        return until;
       });
+      await this.sendReceipt(user.id, { reference, amount: payment.amount, currency: payment.currency, paidAt, premiumUntil });
       return true;
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') return true;
       throw error;
+    }
+  }
+
+  /** Best effort and only reached for a payment recorded just now, so a repeated webhook never sends it twice. */
+  private async sendReceipt(
+    userId: string,
+    paid: { reference: string; amount: number; currency: string; paidAt: Date; premiumUntil: Date },
+  ) {
+    try {
+      const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true, displayName: true } });
+      if (!user?.email) return;
+      await this.email.sendPremiumReceipt(user.email, { ...paid, amount: paid.amount / 100, displayName: user.displayName });
+    } catch (error) {
+      this.logger.warn(`Could not send the receipt for ${paid.reference}: ${(error as Error).message}`);
     }
   }
 
