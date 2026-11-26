@@ -993,6 +993,7 @@ model ClassroomUsage {
   usageDate         DateTime @db.Date
   turnsUsed         Int      @default(0)
   uploadBytesUsed   BigInt   @default(0)
+  speechCharsUsed   Int      @default(0)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)

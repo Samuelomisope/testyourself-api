@@ -1,6 +1,6 @@
 import {
   BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, ParseUUIDPipe,
-  Patch, Post, Put, Query, UploadedFile, UseGuards, UseInterceptors,
+  Patch, Post, Put, Query, Res, StreamableFile, UploadedFile, UseGuards, UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
@@ -8,10 +8,12 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthUser } from '../common/decorators/current-user.decorator';
 import { validateUploadedFile } from '../common/file-signature';
+import type { Response } from 'express';
 import { ClassroomService } from './classroom.service';
+import { ClassroomSpeechService } from './speech/classroom-speech.service';
 import {
   CreateClassroomSessionDto, CreateClassroomTurnDto, LinkClassroomMaterialDto,
-  ListClassroomTurnsQueryDto, ResumePositionDto, SubmitAssessmentAttemptDto, UpdateClassroomSessionDto,
+  ListClassroomTurnsQueryDto, ResumePositionDto, SpeechRequestDto, SubmitAssessmentAttemptDto, UpdateClassroomSessionDto,
 } from './classroom.dto';
 
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
@@ -20,7 +22,7 @@ const MIME_TYPES = new Set(['application/pdf', 'application/vnd.openxmlformats-o
 @Controller('classroom')
 @UseGuards(JwtAuthGuard)
 export class ClassroomController {
-  constructor(private readonly classroom: ClassroomService) {}
+  constructor(private readonly classroom: ClassroomService, private readonly speech: ClassroomSpeechService) {}
 
   @Post('sessions')
   createSession(@CurrentUser() user: AuthUser, @Body() dto: CreateClassroomSessionDto) { return this.classroom.createSession(user.sub, dto); }
@@ -110,4 +112,13 @@ export class ClassroomController {
 
   @Get('sessions/:sessionId/turn-requests/:requestId')
   getTurnRequest(@CurrentUser() user: AuthUser, @Param('sessionId', ParseUUIDPipe) sid: string, @Param('requestId', ParseUUIDPipe) rid: string) { return this.classroom.getTurnRequest(user.sub, sid, rid); }
+
+  @Post('sessions/:sessionId/speech')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 40, ttl: 60_000 } })
+  async speak(@CurrentUser() user: AuthUser, @Param('sessionId', ParseUUIDPipe) sid: string, @Body() dto: SpeechRequestDto, @Res({ passthrough: true }) res: Response) {
+    const result = await this.speech.synthesize(user.sub, sid, dto.text, dto.voice);
+    res.set({ 'Content-Type': result.contentType, 'Cache-Control': 'no-store' });
+    return new StreamableFile(result.audio);
+  }
 }

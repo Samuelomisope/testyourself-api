@@ -860,15 +860,22 @@ export class ClassroomService {
     const quota = await this.quota(userId);
     const user = await this.db.user.findUnique({ where: { id: userId }, select: PREMIUM_SELECT });
     const day = this.todayUtc();
-    const rows = await this.db.$queryRaw<Array<{ turnsUsed: number; uploadBytesUsed: bigint }>>`SELECT "turnsUsed", "uploadBytesUsed" FROM "ClassroomUsage" WHERE "userId" = ${userId} AND "usageDate" = ${day}`;
+    const rows = await this.db.$queryRaw<Array<{ turnsUsed: number; uploadBytesUsed: bigint; speechCharsUsed: number }>>`SELECT "turnsUsed", "uploadBytesUsed", "speechCharsUsed" FROM "ClassroomUsage" WHERE "userId" = ${userId} AND "usageDate" = ${day}`;
     const turnsUsed = Number(rows[0]?.turnsUsed ?? 0);
     const uploadBytesUsed = Number(rows[0]?.uploadBytesUsed ?? 0);
     const uploadBytesLimit = Number(quota.uploadBytes);
+    const speechLimit = Number(process.env.CLASSROOM_PREMIUM_DAILY_SPEECH_CHARS);
+    const speechUsed = Number(rows[0]?.speechCharsUsed ?? 0);
+    const premium = this.isPremium(user);
     return {
       tier: this.isPremium(user) ? 'PREMIUM' : 'FREE',
       turns: { used: Math.min(turnsUsed, quota.turns), limit: quota.turns, remaining: Math.max(quota.turns - turnsUsed, 0) },
       uploads: { usedBytes: uploadBytesUsed, limitBytes: uploadBytesLimit, remainingBytes: Math.max(uploadBytesLimit - uploadBytesUsed, 0) },
       documentsPerSession: quota.documents,
+      // Server voice: only for Premium and only when the allowance is configured.
+      speech: premium && Number.isSafeInteger(speechLimit) && speechLimit > 0
+        ? { usedChars: Math.min(speechUsed, speechLimit), limitChars: speechLimit, remainingChars: Math.max(speechLimit - speechUsed, 0) }
+        : null,
       resetsAt: new Date(day.getTime() + 24 * 60 * 60 * 1000).toISOString(),
     };
   }
