@@ -2,6 +2,7 @@ import {
   BadGatewayException, BadRequestException, ConflictException, Injectable,
   Logger, NotFoundException, ServiceUnavailableException,
 } from '@nestjs/common';
+import { hasPremiumAccess, PREMIUM_SELECT, PremiumSubject } from '../common/premium-access';
 import {
   ClassroomDocumentSource, ClassroomDocumentStatus, ClassroomMode, ClassroomSessionStatus,
   ClassroomSourceMode, ClassroomTurnRequestStatus, ClassroomTurnRole, Prisma,
@@ -841,13 +842,14 @@ export class ClassroomService {
     };
   }
 
-  private isPremium(user: { isPremium?: boolean | null; premiumUntil?: Date | null } | null | undefined) {
-    return !!user?.isPremium && (!user.premiumUntil || user.premiumUntil > new Date());
+  /** A paid plan that has not ended, or an admin account (same limits and features as Premium). */
+  private isPremium(user: PremiumSubject | null | undefined) {
+    return hasPremiumAccess(user);
   }
 
   /** How much of one document is kept: the premium cap when the user has an active premium plan and one is configured. */
   private async textLimit(userId: string) {
-    const user = await this.db.user.findUnique({ where: { id: userId }, select: { isPremium: true, premiumUntil: true } });
+    const user = await this.db.user.findUnique({ where: { id: userId }, select: PREMIUM_SELECT });
     const configured = Number(process.env.CLASSROOM_PREMIUM_MAX_EXTRACTED_CHARS);
     const premiumCap = Number.isSafeInteger(configured) && configured >= 12_000 ? configured : 0;
     return this.isPremium(user) && premiumCap > MAX_TEXT ? premiumCap : MAX_TEXT;
@@ -856,7 +858,7 @@ export class ClassroomService {
   /** Today's allowance and how much of it is used, so the app can show exact numbers. Read-only. */
   async usage(userId: string) {
     const quota = await this.quota(userId);
-    const user = await this.db.user.findUnique({ where: { id: userId }, select: { isPremium: true, premiumUntil: true } });
+    const user = await this.db.user.findUnique({ where: { id: userId }, select: PREMIUM_SELECT });
     const day = this.todayUtc();
     const rows = await this.db.$queryRaw<Array<{ turnsUsed: number; uploadBytesUsed: bigint }>>`SELECT "turnsUsed", "uploadBytesUsed" FROM "ClassroomUsage" WHERE "userId" = ${userId} AND "usageDate" = ${day}`;
     const turnsUsed = Number(rows[0]?.turnsUsed ?? 0);
@@ -872,7 +874,7 @@ export class ClassroomService {
   }
 
   private async quota(userId: string): Promise<Quota> {
-    const user = await this.db.user.findUnique({ where: { id: userId }, select: { isPremium: true, premiumUntil: true } });
+    const user = await this.db.user.findUnique({ where: { id: userId }, select: PREMIUM_SELECT });
     if (!user) throw new NotFoundException('User not found.');
     const premium = this.isPremium(user);
     const tier = premium ? 'PREMIUM' : 'FREE';

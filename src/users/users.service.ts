@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { hasPremiumAccess } from '../common/premium-access';
 import { PrismaService } from '../prisma/prisma.service';
 import { UploadService } from '../upload/upload.service';
 import { BadRequestException } from '@nestjs/common';
@@ -45,7 +46,7 @@ async getRecentActivity(uid: string, type?: string, days = 7) {
     if (!user) return null;
     return {
       ...user,
-      isPremium: user.isPremium && (!user.premiumUntil || user.premiumUntil > new Date()),
+      isPremium: hasPremiumAccess(user),
     };
   }
 
