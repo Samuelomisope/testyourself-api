@@ -10,6 +10,7 @@ import type { AuthUser } from '../common/decorators/current-user.decorator';
 import { validateUploadedFile } from '../common/file-signature';
 import type { Response } from 'express';
 import { ClassroomService } from './classroom.service';
+import { ClassroomVideosService } from './classroom-videos.service';
 import { ClassroomSpeechService } from './speech/classroom-speech.service';
 import {
   CreateClassroomSessionDto, CreateClassroomTurnDto, LinkClassroomMaterialDto,
@@ -22,7 +23,7 @@ const MIME_TYPES = new Set(['application/pdf', 'application/vnd.openxmlformats-o
 @Controller('classroom')
 @UseGuards(JwtAuthGuard)
 export class ClassroomController {
-  constructor(private readonly classroom: ClassroomService, private readonly speech: ClassroomSpeechService) {}
+  constructor(private readonly classroom: ClassroomService, private readonly speech: ClassroomSpeechService, private readonly videos: ClassroomVideosService) {}
 
   @Post('sessions')
   createSession(@CurrentUser() user: AuthUser, @Body() dto: CreateClassroomSessionDto) { return this.classroom.createSession(user.sub, dto); }
@@ -73,6 +74,25 @@ export class ClassroomController {
   @Delete('sessions/:sessionId')
   @Throttle({ default: { limit: 3, ttl: 60_000 } })
   deleteSession(@CurrentUser() user: AuthUser, @Param('sessionId', ParseUUIDPipe) id: string) { return this.classroom.deleteSession(user.sub, id); }
+
+  @Get('sessions/:sessionId/videos')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  videoSuggestions(@CurrentUser() user: AuthUser, @Param('sessionId', ParseUUIDPipe) id: string, @Query('step') step?: string) {
+    return this.videos.suggest(user.sub, id, this.parseStep(step));
+  }
+
+  @Post('sessions/:sessionId/videos/:videoId/report')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  reportVideo(@CurrentUser() user: AuthUser, @Param('sessionId', ParseUUIDPipe) id: string, @Param('videoId') videoId: string, @Query('step') step?: string) {
+    return this.videos.report(user.sub, id, videoId, this.parseStep(step));
+  }
+
+  private parseStep(step?: string) {
+    if (step === undefined) return undefined;
+    const parsed = Number(step);
+    if (!Number.isInteger(parsed) || parsed < 0 || parsed > 50) throw new BadRequestException('Step must be a whole number between 0 and 50.');
+    return parsed;
+  }
 
   @Get('sessions/:sessionId/documents')
   listDocuments(@CurrentUser() user: AuthUser, @Param('sessionId', ParseUUIDPipe) id: string) { return this.classroom.listDocuments(user.sub, id); }

@@ -978,12 +978,26 @@ model ClassroomUsage {
   turnsUsed         Int      @default(0)
   uploadBytesUsed   BigInt   @default(0)
   speechCharsUsed   Int      @default(0)
+  videoLookupsUsed  Int      @default(0)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, usageDate])
   @@index([usageDate])
+}
+
+// Cached YouTube matches for one lesson topic and step, shared by every student so a repeat lookup costs no search quota.
+model ClassroomVideoSuggestion {
+  id         String   @id @default(uuid())
+  queryKey   String   @unique @db.VarChar(64)
+  query      String   @db.VarChar(300)
+  videos     Json
+  hiddenIds  String[]
+  fetchedAt  DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([fetchedAt])
 }
 
 // Which announcements and tours a user has seen or dismissed, so a NEW marker or tour never repeats for them.
