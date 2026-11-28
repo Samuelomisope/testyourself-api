@@ -21,3 +21,14 @@ export const PLAN_STYLE =
 export const CHECK_STYLE =
   'Write each explanation so it teaches: say why the correct answer is right and which common misconception makes the tempting wrong choices wrong. ' +
   'Test understanding, not recall: prefer a short application or calculation to a definition when the subject is numerical.';
+
+/** The guidance is off until CLASSROOM_TEACHING_V21=true is set, so deploying the code changes nothing for students by itself. */
+export function teachingEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.CLASSROOM_TEACHING_V21 === 'true';
+}
+export const teachingStyle = (env?: NodeJS.ProcessEnv) =>
+  teachingEnabled(env) ? TEACHING_STYLE : '';
+export const planStyle = (env?: NodeJS.ProcessEnv) =>
+  teachingEnabled(env) ? PLAN_STYLE : '';
+export const checkStyle = (env?: NodeJS.ProcessEnv) =>
+  teachingEnabled(env) ? CHECK_STYLE : '';

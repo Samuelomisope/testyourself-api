@@ -1,4 +1,10 @@
-import { CHECK_STYLE, PLAN_STYLE, TEACHING_STYLE } from './classroom-teaching';
+import {
+  CHECK_STYLE,
+  PLAN_STYLE,
+  TEACHING_STYLE,
+  checkStyle,
+  teachingEnabled,
+} from './classroom-teaching';
 import { buildAssessmentPrompt } from './classroom-assessment';
 
 describe('classroom 2.1 teaching guidance', () => {
@@ -20,18 +26,40 @@ describe('classroom 2.1 teaching guidance', () => {
   });
   it('asks check-ins to explain the misconception behind wrong answers', () => {
     expect(CHECK_STYLE).toContain('misconception');
-    const prompt = buildAssessmentPrompt({
+    const input = {
       topic: 'Rock mechanics',
       stepTitle: 'Stress',
       stepSummary: 's',
       objectives: [],
       chunks: [],
-    });
-    expect(prompt).toContain(CHECK_STYLE);
-    expect(prompt).toContain('Return ONLY valid JSON');
+    };
+    const original = process.env.CLASSROOM_TEACHING_V21;
+    try {
+      delete process.env.CLASSROOM_TEACHING_V21;
+      expect(buildAssessmentPrompt(input)).not.toContain(CHECK_STYLE);
+      process.env.CLASSROOM_TEACHING_V21 = 'true';
+      const prompt = buildAssessmentPrompt(input);
+      expect(prompt).toContain(CHECK_STYLE);
+      expect(prompt).toContain('Return ONLY valid JSON');
+    } finally {
+      if (original === undefined) delete process.env.CLASSROOM_TEACHING_V21;
+      else process.env.CLASSROOM_TEACHING_V21 = original;
+    }
   });
   it('adds no new JSON fields, so the API stays the same', () => {
     for (const text of [TEACHING_STYLE, PLAN_STYLE, CHECK_STYLE])
       expect(text).not.toMatch(/"[a-zA-Z]+":/);
+  });
+
+  it('is off unless CLASSROOM_TEACHING_V21 is exactly "true"', () => {
+    expect(teachingEnabled({})).toBe(false);
+    expect(teachingEnabled({ CLASSROOM_TEACHING_V21: '1' } as any)).toBe(false);
+    expect(teachingEnabled({ CLASSROOM_TEACHING_V21: 'true' } as any)).toBe(
+      true,
+    );
+    expect(checkStyle({})).toBe('');
+    expect(checkStyle({ CLASSROOM_TEACHING_V21: 'true' } as any)).toBe(
+      CHECK_STYLE,
+    );
   });
 });
